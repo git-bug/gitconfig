@@ -21,11 +21,13 @@
 //		fmt.Println(e.Value)
 //	}
 //
-//	err = env.UpdateScope(gitconfig.Local, func(f *gitconfig.File) error {
+//	err = env.UpdateScope(gitconfig.ScopeLocal, func(f *gitconfig.File) error {
 //		return f.Set("core.editor", "vim")
 //	})
 //
-// Nothing in this package reads the process environment, the home directory
-// or the real filesystem, except [Discover]. An Env built by hand is fully
-// described by its fields.
+// Nothing in this package reads the process environment or the home
+// directory, except [Discover], and only the methods of [Env] touch the
+// filesystem. An Env built by hand is fully described by its fields;
+// [Parse], [File] and [Config] do no I/O, for callers that store
+// configuration their own way.
 package gitconfig

@@ -37,10 +37,35 @@ func ExampleEnv_UpdateScope() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = env.UpdateScope(gitconfig.Local, func(f *gitconfig.File) error {
+	err = env.UpdateScope(gitconfig.ScopeLocal, func(f *gitconfig.File) error {
 		return f.Set("core.editor", "vim")
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 }
+
+// Check that a repository may be trusted before reading its configuration,
+// as git does. SafeDirectory reads only the system, global and command-line
+// scopes; the ownership check is the caller's.
+func ExampleEnv_SafeDirectory() {
+	env, err := gitconfig.Discover("/srv/shared/proj/.git")
+	if err != nil {
+		log.Fatal(err)
+	}
+	ok, err := env.SafeDirectory("/srv/shared/proj")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !ok && !ownedByCurrentUser("/srv/shared/proj") {
+		log.Fatal("unsafe repository")
+	}
+
+	cfg, err := env.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("editor:", cfg.Value("core.editor", "vi"))
+}
+
+func ownedByCurrentUser(dir string) bool { return false } // platform specific
