@@ -18,8 +18,8 @@ func ExampleEnv_Load() {
 		log.Fatal(err)
 	}
 
-	if name, ok := cfg.Get("user.name"); ok {
-		fmt.Println("user:", name.Value)
+	if e, ok := cfg.Get("user.name"); ok {
+		fmt.Println("user:", e.Value)
 	}
 
 	// Missing key: the default. Malformed value ("maybe"): an error, as in git.

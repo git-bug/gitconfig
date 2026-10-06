@@ -33,7 +33,8 @@ func (f *File) Config() *Config {
 }
 
 // Set sets the value of key, like `git config <key> <value>`. It fails with
-// ErrMultipleValues if key has several values.
+// ErrMultipleValues if key has several values. It is Replace with the zero
+// Match.
 func (f *File) Set(key, value string) error {
 	panic("not implemented")
 }
@@ -56,9 +57,10 @@ func (f *File) Add(key, value string) error {
 	panic("not implemented")
 }
 
-// Unset removes key, like `git config --unset`. It fails with ErrNotFound if
-// key is absent and with ErrMultipleValues if key has several values.
-func (f *File) Unset(key string) error {
+// Unset removes the single value of key matched by m, like
+// `git config --unset <key> [<pattern>]`. It fails with ErrNotFound if none
+// matches and with ErrMultipleValues if several do.
+func (f *File) Unset(key string, m Match) error {
 	panic("not implemented")
 }
 
@@ -82,14 +84,16 @@ func (f *File) RenameSection(oldName, newName string) error {
 	panic("not implemented")
 }
 
-// Match selects values for Replace, ReplaceAll and UnsetAll, with git's
+// Match selects values for Replace, ReplaceAll, Unset and UnsetAll, with git's
 // semantics. The zero Match matches every value.
 type Match struct {
 	// unexported
 }
 
 // Regexp matches values against a POSIX extended regular expression, as git
-// does. A leading '!' negates the match.
+// does, using Go's POSIX syntax (regexp.CompilePOSIX, leftmost-longest). It
+// may differ from git's libc regcomp in rare cases, such as locale-dependent
+// character classes. A leading '!' negates the match.
 func Regexp(pattern string) (Match, error) {
 	panic("not implemented")
 }

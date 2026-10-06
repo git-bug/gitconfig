@@ -17,7 +17,9 @@
 //
 //	cfg, err := env.Load()
 //	if err != nil { ... }
-//	name, ok := cfg.Get("user.name")
+//	if e, ok := cfg.Get("user.name"); ok {
+//		fmt.Println(e.Value)
+//	}
 //
 //	err = env.UpdateScope(gitconfig.Local, func(f *gitconfig.File) error {
 //		return f.Set("core.editor", "vim")

@@ -7,8 +7,9 @@ import "iter"
 //
 // Keys are given as in `git config`: "section.name" or
 // "section.subsection.name". Section and name are case-insensitive, the
-// subsection is case-sensitive. An invalid key is never present: lookups
-// report it as not found.
+// subsection is case-sensitive. An invalid key is never present: Get, GetAll
+// and Subsections report it as not found, Bool and Int fail with
+// ErrInvalidKey. Use ParseKey to check a key beforehand.
 type Config struct {
 	// unexported
 }
@@ -36,13 +37,15 @@ func (c *Config) Subsections(section string) []string {
 }
 
 // Bool returns the last value for key as a boolean, or def if key is absent.
-// A value that is not a valid boolean is a *ValueError, never def.
+// A value that is not a valid boolean is a *ValueError, never def. An invalid
+// key is ErrInvalidKey.
 func (c *Config) Bool(key string, def bool) (bool, error) {
 	panic("not implemented")
 }
 
 // Int returns the last value for key as an integer, or def if key is absent.
-// A value that is not a valid integer is a *ValueError, never def.
+// A value that is not a valid integer is a *ValueError, never def. An invalid
+// key is ErrInvalidKey.
 func (c *Config) Int(key string, def int64) (int64, error) {
 	panic("not implemented")
 }
@@ -66,9 +69,12 @@ type Entry struct {
 // Origin tells where an entry comes from, as `git config --show-scope
 // --show-origin` does.
 type Origin struct {
-	Scope Scope  // 0 when the entry comes from a File, outside of any Env
-	File  string // the file that holds the entry, possibly an included one; "" for Command
-	Line  int    // 1-based; 0 for Command
+	// Scope is Command for entries of Env.LoadFile and File.Config, as git
+	// reports for `git config -f`. Those have a File; command-line entries
+	// (git -c) do not.
+	Scope Scope
+	File  string // the file that holds the entry, possibly an included one; "" for git -c
+	Line  int    // 1-based; 0 for git -c
 }
 
 // Bool interprets the value as git does: true, yes, on and non-zero integers
@@ -84,18 +90,19 @@ func (e Entry) Int() (int64, error) {
 	panic("not implemented")
 }
 
-// Path interprets the value as a path: a leading "~/" is replaced by home.
-// "%(prefix)/" depends on how git was built and is a *ValueError.
-func (e Entry) Path(home string) (string, error) {
-	panic("not implemented")
-}
-
 // Key is the canonical form of a key, as printed by `git config --list`:
 // section and name in lower case, subsection verbatim.
 type Key struct {
 	Section    string
 	Subsection string // "" when there is none
 	Name       string
+}
+
+// ParseKey parses "section.name" or "section.subsection.name" as git does:
+// the subsection is everything between the first and the last dot, section
+// and name are lowered. A key git rejects is ErrInvalidKey.
+func ParseKey(s string) (Key, error) {
+	panic("not implemented")
 }
 
 // String returns the key as "section.name" or "section.subsection.name".

@@ -11,9 +11,13 @@ var (
 	// several values.
 	ErrMultipleValues = errors.New("gitconfig: multiple values")
 
-	// ErrInvalidKey is returned when an edit is given a key or section name
-	// that git rejects.
+	// ErrInvalidKey is returned when an edit, ParseKey, Config.Bool or
+	// Config.Int is given a key or section name that git rejects.
 	ErrInvalidKey = errors.New("gitconfig: invalid key")
+
+	// ErrInvalidValue is returned when an edit is given a value git cannot
+	// store: one that contains a NUL byte.
+	ErrInvalidValue = errors.New("gitconfig: invalid value")
 
 	// ErrLocked is returned when the lock file exists: another process is
 	// writing.
