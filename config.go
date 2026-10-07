@@ -7,7 +7,8 @@ import "iter"
 //
 // Keys are given as in `git config`: "section.name" or
 // "section.subsection.name". Section and name are case-insensitive, the
-// subsection is case-sensitive. An invalid key is never present: every read
+// subsection is case-sensitive; a legacy header [a.B] holds subsection "b",
+// as git lowers it. An invalid key is never present: every read
 // treats it as absent. Keys are usually constants in the caller's code;
 // check them once with ParseKey, for example in a test.
 //

@@ -24,7 +24,8 @@ generalising any of them.
 | `[a]` `k = one \` ⏎ ` two` | `a.k` | `one  two` (continuation: backslash-newline removed) |
 | `[a] # c` then `k = v` | `a.k` | `v` (comment after a header) |
 | `[a] k = v` | `a.k` | `v` (entry on the header line) |
-| `[a.B]` `k = v` | `a.b.k` and `a.B.k` | `v` for both (legacy subsection syntax is case-insensitive) |
+| `[a.B]` `k = v` | `a.b.k` | `v` (a legacy subsection is lowered, as `--list` shows: `a.b.k`) |
+| `[a.B]` `k = v` | `a.B.k` | exit status 1, no output *(2.47.3)* |
 | `[CORE]` `Editor = vim` | `core.editor` | `vim` |
 | `[a]` `k = "x;y"` | `a.k` | `x;y` |
 | `[a]` `k` | `a.k` | empty string; as `--bool`: `true` |
@@ -76,7 +77,8 @@ Key names: ASCII letters, digits and `-`, starting with a letter.
 | `[a] k = v` | `a.k w` | `[a]` / `\tk = w` — the shared line is split |
 | `[a]` `k = v` (no final newline) | `a.j w` | `[a]` / `\tk = v` / `\tj = w` |
 | `[a]` `k = one \` ⏎ `  two` `z = 1` | `a.k new` | `\tk = new` replaces both physical lines; `z = 1` kept |
-| `[a.B]` `k = v` | `a.B.j w` or `a.b.j w` | appended into `[a.B]` in both cases |
+| `[a.B]` `k = v` | `a.B.j w` or `a.b.j w` | appended into `[a.B]` in both cases, where it reads back as `a.b.j` *(2.47.3)* — this library writes `a.B.j` into a new `[a "B"]` (E10) |
+| `[a.B]` `k = v` | `a.B.k w` | `\tk = w` appended into `[a.B]`: `a.b.k` now has two values *(2.47.3)* — this library adds `[a "B"]` (E10) |
 | `[a]` `␣␣␣␣k = v` (spaces) | `a.j w` | existing line untouched, new line indented with a tab |
 | `[a]` `k = old ; note` | `a.k new` | `\tk = new` — the trailing comment is dropped |
 | `[a]` `k` (implicit) | `a.k false` | `\tk = false` |
@@ -96,11 +98,12 @@ Key names: ASCII letters, digits and `-`, starting with a letter.
 | `say "hi"` | `say \"hi\"` (quotes escaped, no surrounding quotes) |
 | `a\b` | `a\\b` |
 | tab inside | `tab\tin` |
+| leading or trailing tab | `\ttab`, `tab\t` (escaped, no quotes) *(2.47.3)* |
 | newline inside | `multi\nline` |
 | empty | `k = ` (nothing after `= `) |
 
-Observed rule: surround with quotes when the value has leading or trailing
-whitespace or contains `#` or `;`; always escape `\`, `"`, tab and newline.
+Observed rule: surround with quotes when the value starts or ends with a
+space or contains `#` or `;`; always escape `\`, `"`, tab and newline.
 
 ### Multiple values and missing keys
 
@@ -128,6 +131,9 @@ whitespace or contains `#` or `;`; always escape `\`, `"`, tab and newline.
 | `[a]` `# c` `k = v` `[b]`… | `--rename-section a z` | only the header changes |
 | `[a ""]` `k = v` `[a]` `k = w` | `--remove-section a.` | `[a]` `k = w` — `a.` names the empty subsection *(2.47.3)* |
 | `[a ""]` `k = v` `[a]` `k = w` | `--rename-section a. b.x` | `[b "x"]` `k = v` `[a]` `k = w` *(2.47.3)* |
+| `[A]` `k = v` | `--remove-section a`, `--rename-section a z` | `fatal: no such section: a`, exit 128: the header text is compared as written *(2.47.3)* — this library matches section names case-insensitively (E10) |
+| `[a.X]` `k = v` | `--remove-section a.X` / `a.x` | removed / `no such section` *(2.47.3)* — this library removes it as subsection `x` only (E10) |
+| `[c "s"]` `z = 1` | `--rename-section c.s 'c.x⏎y'` | exit 0, writes `[c "x⏎y"]`, which git then refuses: `bad config line 1` *(2.47.3)* — this library refuses the name (X1) |
 | `[a]` `k = 1` `[b]` `k = 2` | `--rename-section a b` | `[b]` `k = 1` `[b]` `k = 2`, exit 0: an existing target is not checked, both sections read as one (`--get-all b.k` → `1` `2`); the same for subsections *(2.47.3)* |
 | `# top` `[a]` `# c` `k = v` `[b]`… | `--remove-section a` | `# top` `[b]`… — header, inner comment and keys removed; the comment before the header kept |
 

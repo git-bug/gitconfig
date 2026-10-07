@@ -14,6 +14,13 @@ package gitconfig
 // repositories, a .gitmodules blob), or from Env.UpdateScope and
 // Env.UpdateFile, to edit a file on disk.
 //
+// Edits find keys, sections and subsections as Config does: section and name
+// case-insensitive, subsection exact, a legacy header [a.B] holding
+// subsection "b". git differs in two places: it places a key with an
+// upper-case subsection into a matching legacy header, where it reads back
+// lowered, and it removes or renames a section only if the header is
+// spelled as given.
+//
 // Edits fail with ErrInvalidKey if a key or section name is one git rejects,
 // and with ErrInvalidValue if a value contains a NUL byte. Removing something
 // that is absent is not an error: the methods report what they removed.

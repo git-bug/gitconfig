@@ -31,6 +31,7 @@ vector in [GIT-BEHAVIOUR.md](GIT-BEHAVIOUR.md).
 | E5 | Empty-section cleanup after unset matches git: removed unless a comment lies between the previous entry or header and the next section (so a comment just above the header keeps it too). *verified* | MUST |
 | E6 | Writes never go into an included file; they go to the file being edited, as git does. *verified* | MUST |
 | E7 | Setting a key to the value it already has leaves its line as it is (git rewrites it in its own format, e.g. `    k=v` → `\tk = v`), and committing an edit that leaves the content unchanged does not touch the file (git always rewrites it). A deliberate improvement over git, asked for by git-bug#1022: a line nobody changed is kept byte for byte. An implicit entry is never "already set" (it reads as true, `k = ` as false). *verified* | SHOULD |
+| E10 | Edits find keys, sections and subsections by their canonical form, as reads do: section and name case-insensitive, subsection exact, a legacy header `[a.B]` holding subsection `b`. A deliberate difference with git, which places a key with an upper-case subsection into a matching legacy header (where it reads back lowered, and can make a key multi-valued, breaking X1) and removes or renames a section only when the header is spelled as given. *verified* | MUST |
 | E8 | Adding comments (`git config --comment`, git ≥ 2.45). | LATER |
 | E9 | Value patterns for set, `--replace-all`, `--unset` and `--unset-all`: regexp, negated regexp, `--fixed-value`, with Go's linear-time regexp engine (X2). Neither git-bug nor go-git uses them. | LATER |
 
@@ -99,6 +100,6 @@ and callers must be able to tell whether to trust it.
   top, outside the core.
 - No support for non-git config dialects or arbitrary formatting choices
   (gopasspw/gitconfig issues #16 and #18).
-- No invention of behaviour git does not have, except E7 and X3.
+- No invention of behaviour git does not have, except E7, E10 and X3.
 - No `git config --edit`-style interactive features, no `--global` writes
   without the caller choosing the file.
