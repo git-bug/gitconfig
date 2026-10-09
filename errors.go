@@ -145,7 +145,11 @@ func (e *ValueError) Error() string {
 	if e.Entry.Implicit {
 		msg = fmt.Sprintf("gitconfig: missing %s value for %q", e.Type, e.Entry.Key.String())
 	} else {
-		msg = fmt.Sprintf("gitconfig: bad %s value %q for %q", e.Type, e.Entry.Value, e.Entry.Key.String())
+		msg = fmt.Sprintf("gitconfig: bad %s value %q", e.Type, e.Entry.Value)
+		// No key for the default of Config.Path given an invalid key.
+		if e.Entry.Key != (Key{}) {
+			msg += fmt.Sprintf(" for %q", e.Entry.Key.String())
+		}
 	}
 	if e.Entry.Origin.File != "" {
 		msg += fmt.Sprintf(" in file %s", e.Entry.Origin.File)

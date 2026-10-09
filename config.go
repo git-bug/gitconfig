@@ -169,7 +169,7 @@ func (c *Config) Int(key string, def int64) (int64, error) {
 //
 // A value that cannot be expanded is a *ValueError, and the result is then
 // def, unexpanded. This also holds for def itself: its error reports it
-// with an empty Origin.
+// with an empty Origin, and a zero Key if key is invalid.
 func (c *Config) Path(key, home, def string) (string, error) {
 	e, ok := c.Get(key)
 	if !ok {

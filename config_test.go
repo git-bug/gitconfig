@@ -611,6 +611,15 @@ func TestConfigTypedGetters(t *testing.T) {
 		assert.Equal(t, gitconfig.Key{Section: "a", Name: "missing"}, ve.Entry.Key)
 		assert.Equal(t, gitconfig.Origin{}, ve.Entry.Origin)
 	})
+
+	t.Run("Path with an invalid key and a default that cannot be expanded", func(t *testing.T) {
+		got, err := c.Path("a.k_y", "", "~/d")
+		var ve *gitconfig.ValueError
+		require.ErrorAs(t, err, &ve)
+		assert.Equal(t, "~/d", got)
+		assert.Equal(t, gitconfig.Key{}, ve.Entry.Key)
+		assert.Equal(t, `gitconfig: bad path value "~/d": home directory unknown`, err.Error())
+	})
 }
 
 // bigConfig returns a configuration of n remotes and n branches, the shape

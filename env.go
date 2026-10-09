@@ -3,6 +3,7 @@ package gitconfig
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -366,9 +367,9 @@ func (e Env) writeTarget(s Scope) (string, Scope, error) {
 		if len(e.GlobalConfig) == 0 {
 			return "", 0, ErrNoScope
 		}
-		for i := len(e.GlobalConfig) - 1; i >= 0; i-- {
-			if _, err := os.Lstat(e.GlobalConfig[i]); err == nil {
-				return e.GlobalConfig[i], s, nil
+		for _, v := range slices.Backward(e.GlobalConfig) {
+			if _, err := os.Lstat(v); err == nil {
+				return v, s, nil
 			}
 		}
 		return e.GlobalConfig[len(e.GlobalConfig)-1], s, nil
