@@ -8,7 +8,8 @@
 //   - [File] is the lossless, editable form of a single file.
 //   - [Env] says where git's configuration comes from, and is the only way
 //     to the disk: it loads scopes or files (following includes) and
-//     edits them under git's lock.
+//     edits them with git's lock file protocol, so that git and this
+//     package can safely write the same file.
 //
 // Reading the effective configuration of a repository and changing a value:
 //
@@ -26,8 +27,13 @@
 //	})
 //
 // Nothing in this package reads the process environment or the home
-// directory, except [Discover], and only the methods of [Env] touch the
-// filesystem. An Env built by hand is fully described by its fields;
-// [Parse], [File] and [Config] do no I/O, for callers that store
+// directory, except [Discover], and only [Discover] and the methods of [Env]
+// touch the filesystem. An Env built by hand is fully described by its
+// fields. [Parse], [File] and [Config] do no I/O, for callers that store
 // configuration their own way.
+//
+// Errors wrap the sentinel errors of this package (ErrLocked,
+// ErrInvalidKey, ...) in a typed error giving the key, file or value
+// concerned; the documentation of the error variables says which function
+// returns which type.
 package gitconfig

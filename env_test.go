@@ -158,6 +158,16 @@ func TestEnvLoad(t *testing.T) {
 		assert.Empty(t, slices.Collect(c.All()))
 	})
 
+	t.Run("file in place of a directory is missing", func(t *testing.T) {
+		// A file ~/.config/git hides the XDG file, as for git.
+		dir := tempDir(t)
+		writeFile(t, filepath.Join(dir, "git"), "")
+		env := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "git", "config")}}
+		c, err := env.Load()
+		require.NoError(t, err)
+		assert.Empty(t, slices.Collect(c.All()))
+	})
+
 	t.Run("outside a repository", func(t *testing.T) {
 		env := fullEnv(t)
 		env.GitDir = ""
@@ -297,7 +307,7 @@ func TestEnvIncludes(t *testing.T) {
 
 	t.Run("missing file ignored", func(t *testing.T) {
 		_, c, err := load(t, map[string]string{
-			"main": "[include]\n\tpath = missing\n\tpath = ~/missing\n[a]\n\tk = v\n",
+			"main": "[include]\n\tpath = missing\n\tpath = ~/missing\n\tpath = main/missing\n[a]\n\tk = v\n",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "v", c.Value("a.k", ""))
@@ -454,6 +464,17 @@ func TestEnvLoadLimits(t *testing.T) {
 			require.NoError(t, err)
 		}
 	})
+
+	t.Run("repeated includeIf paths", func(t *testing.T) {
+		// One costly pattern, then many paths under it: the condition is
+		// evaluated once, not once per path.
+		dir := tempDir(t)
+		writeFile(t, filepath.Join(dir, "main"), "[includeIf \"gitdir:"+strings.Repeat("a*", 1<<17)+"\"]\n"+strings.Repeat("path =\n", 1<<16))
+		initRepo(t, filepath.Join(dir, ".git"), "")
+
+		_, err := gitconfig.Env{GitDir: filepath.Join(dir, ".git"), GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
+		require.NoError(t, err)
+	})
 }
 
 func TestEnvIncludeIf(t *testing.T) {
@@ -517,6 +538,73 @@ func TestEnvIncludeIf(t *testing.T) {
 		env := gitconfig.Env{GitDir: filepath.Join(link, "proj", ".git")}
 		assert.True(t, included(t, env, "gitdir:"+s+"/work/"), "real path")
 		assert.True(t, included(t, env, "gitdir:"+s+"/link/"), "path as given")
+	})
+
+	t.Run("gitdir:./ from a relative file", func(t *testing.T) {
+		// "./" is the absolute directory of the file: loaded as "config"
+		// from cfg, "gitdir:./repo/" is cfg/repo/, not any repo/.
+		cfg := filepath.Join(tempDir(t), "cfg")
+		writeFile(t, filepath.Join(cfg, "config"), "[includeIf \"gitdir:./repo/\"]\n\tpath = "+s+"/inc\n")
+		t.Chdir(cfg)
+		for _, tc := range []struct {
+			gitDir string
+			want   bool
+		}{
+			{filepath.Join(cfg, "repo", ".git"), true},
+			{filepath.Join(dir, "other", "repo", ".git"), false},
+		} {
+			c, err := gitconfig.Env{GitDir: tc.gitDir}.LoadFile("config")
+			require.NoError(t, err)
+			_, ok := c.Get("a.k")
+			assert.Equal(t, tc.want, ok, tc.gitDir)
+		}
+	})
+
+	t.Run("gitdir classes", func(t *testing.T) {
+		// Checked against git 2.56. A malformed class does not fall back
+		// to literal characters: the pattern matches nothing.
+		for _, tc := range []struct {
+			name string // of the directory holding .git
+			cond string
+			want bool
+		}{
+			{"x1", "gitdir:" + s + "/x[[:digit:]]/", true},
+			{"x1", "gitdir:" + s + "/[[:lower:]][[:digit:]]/", true},
+			{"x1", "gitdir:" + s + "/[[:upper:]]1/", false},
+			{"x1", "gitdir/i:" + s + "/[[:upper:]]1/", true},
+			{"x1", "gitdir:" + s + "/x[[:alpha:][:digit:]]/", true},
+			{"x1", "gitdir:" + s + "/x[![:alpha:]]/", true},
+			{"x1", "gitdir:" + s + "/x[[:punct:]]/", false},
+			{"x1", "gitdir:" + s + "/x[[:digit:]a-]/", true},
+			{"x1", "gitdir:" + s + "/x[[:bogus:]]/", false},
+			{"x1", "gitdir:" + s + "/x[![:bogus:]]/", false},
+			{"x1", "gitdir:" + s + "/x[1[:bogus:]]/", false},
+			{"x1", "gitdir:" + s + "/x[[:DIGIT:]]/", false},
+			{"x1", "gitdir:" + s + "/x[[::]1]/", false},
+			{"x1", "gitdir:" + s + "/x[[:digit:]/", false},
+			{"x1", "gitdir:" + s + "/x1/[a", false},
+			{"x-", "gitdir:" + s + "/x[[:digit:]-z]/", true},
+			{"xd", "gitdir:" + s + "/x[[:digit]/", true}, // no ":]": '[', ':', 'd', ...
+			{"a[b", "gitdir:" + s + "/a[b/", false},
+			{"a[b", "gitdir:" + s + "/a[[]b/", true},
+			{"a[b", "gitdir:" + s + "/[[:alpha:]][[]b/", true},
+		} {
+			t.Run(tc.name+" "+tc.cond, func(t *testing.T) {
+				gitDir := filepath.Join(dir, tc.name, ".git")
+				initRepo(t, gitDir, "")
+				assert.Equal(t, tc.want, included(t, gitconfig.Env{GitDir: gitDir}, tc.cond))
+			})
+		}
+	})
+
+	t.Run("malformed patterns take linear time", func(t *testing.T) {
+		// Each '[' would otherwise scan the rest of the pattern. A final
+		// ":]" makes each "[:" look for the end of a class name.
+		for _, p := range []string{"[", "[\\\\]", "[:", "[[:"} {
+			cond := "gitdir:" + strings.Repeat(p, 1<<18/len(p))
+			assert.False(t, included(t, env, cond), "%q", p)
+			assert.False(t, included(t, env, cond+":]"), "%q, then \":]\"", p)
+		}
 	})
 
 	t.Run("onbranch", func(t *testing.T) {
@@ -681,6 +769,24 @@ func TestEnvLoadScope(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []scoped{{gitconfig.ScopeWorktree, "linked"}}, scopedValues(c.GetAll("a.k")))
 	})
+
+	t.Run("linked worktree through a link", func(t *testing.T) {
+		// commondir's ".." apply to the real directory, as the system
+		// resolves them, not to the link's parent.
+		env := fullEnv(t)
+		local := filepath.Join(env.GitDir, "config")
+		wt := addWorktree(t, env.GitDir, "wt", "other")
+		link := filepath.Join(tempDir(t), "wt")
+		symlink(t, wt, link)
+		env.GitDir = link
+
+		path, err := env.WritePath(gitconfig.ScopeLocal)
+		require.NoError(t, err)
+		assert.Equal(t, local, path)
+		c, err := env.LoadScope(gitconfig.ScopeLocal)
+		require.NoError(t, err)
+		assert.Equal(t, "local", c.Value("a.k", ""))
+	})
 }
 
 func TestEnvLoadFile(t *testing.T) {
@@ -765,6 +871,32 @@ func TestEnvSafeDirectory(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+
+	t.Run("relative directory", func(t *testing.T) {
+		// Checked against git 2.56: "../*" trusts nothing, as "../repo"
+		// does not. A relative dir is taken from the working directory.
+		t.Chdir(a)
+		for _, tc := range []struct {
+			entry string
+			dir   string
+			want  bool
+		}{
+			{s + "/a", ".", true},
+			{s + "/a/b", "b", true},
+			{s + "/ab", "../ab", true},
+			{s + "/*", "../ab", true},
+			{"../*", "../ab", false},
+			{"../ab", "../ab", false},
+		} {
+			t.Run(tc.entry+" "+tc.dir, func(t *testing.T) {
+				global := filepath.Join(tempDir(t), "global")
+				writeFile(t, global, "[safe]\n\tdirectory = "+tc.entry+"\n")
+				got, err := gitconfig.Env{GlobalConfig: []string{global}}.SafeDirectory(tc.dir)
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			})
+		}
+	})
 
 	t.Run("listed through an include", func(t *testing.T) {
 		dir := tempDir(t)
@@ -951,23 +1083,25 @@ func TestDiscover(t *testing.T) {
 		}
 	})
 
-	t.Run("malformed command line", func(t *testing.T) {
+	t.Run("malformed environment", func(t *testing.T) {
 		for _, tc := range []struct {
-			name string
-			vars map[string]string
+			name   string
+			vars   map[string]string
+			envVar string // EnvError.Var
 		}{
-			{"bogus count", map[string]string{"GIT_CONFIG_COUNT": "x"}},
-			{"negative count", map[string]string{"GIT_CONFIG_COUNT": "-1"}},
-			{"sign only", map[string]string{"GIT_CONFIG_COUNT": "+"}},
-			{"space only", map[string]string{"GIT_CONFIG_COUNT": " "}},
+			{"bogus count", map[string]string{"GIT_CONFIG_COUNT": "x"}, "GIT_CONFIG_COUNT"},
+			{"negative count", map[string]string{"GIT_CONFIG_COUNT": "-1"}, "GIT_CONFIG_COUNT"},
+			{"sign only", map[string]string{"GIT_CONFIG_COUNT": "+"}, "GIT_CONFIG_COUNT"},
+			{"space only", map[string]string{"GIT_CONFIG_COUNT": " "}, "GIT_CONFIG_COUNT"},
 			// Accepted by git.
-			{"plus sign", map[string]string{"GIT_CONFIG_COUNT": "+1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}},
-			{"leading space", map[string]string{"GIT_CONFIG_COUNT": " 1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}},
-			{"negative zero", map[string]string{"GIT_CONFIG_COUNT": "-0"}},
-			{"too many", map[string]string{"GIT_CONFIG_COUNT": "2147483648"}},
-			{"missing key", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_VALUE_0": "v"}},
-			{"missing value", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "a.k"}},
-			{"bad parameters", map[string]string{"GIT_CONFIG_PARAMETERS": "'a.k"}},
+			{"plus sign", map[string]string{"GIT_CONFIG_COUNT": "+1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}, "GIT_CONFIG_COUNT"},
+			{"leading space", map[string]string{"GIT_CONFIG_COUNT": " 1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}, "GIT_CONFIG_COUNT"},
+			{"negative zero", map[string]string{"GIT_CONFIG_COUNT": "-0"}, "GIT_CONFIG_COUNT"},
+			{"too many", map[string]string{"GIT_CONFIG_COUNT": "2147483648"}, "GIT_CONFIG_COUNT"},
+			{"missing key", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_VALUE_0": "v"}, "GIT_CONFIG_KEY_0"},
+			{"missing value", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "a.k"}, "GIT_CONFIG_VALUE_0"},
+			{"bad parameters", map[string]string{"GIT_CONFIG_PARAMETERS": "'a.k"}, "GIT_CONFIG_PARAMETERS"},
+			{"bad nosystem", map[string]string{"GIT_CONFIG_NOSYSTEM": "maybe"}, "GIT_CONFIG_NOSYSTEM"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				cleanGitEnv(t)
@@ -975,7 +1109,9 @@ func TestDiscover(t *testing.T) {
 					t.Setenv(k, v)
 				}
 				_, err := gitconfig.Discover("")
-				require.Error(t, err)
+				envErr, ok := errors.AsType[*gitconfig.EnvError](err)
+				require.True(t, ok, "got %v", err)
+				assert.Equal(t, tc.envVar, envErr.Var)
 			})
 		}
 	})
@@ -1007,6 +1143,20 @@ func TestDiscover(t *testing.T) {
 		env, err = gitconfig.Discover(filepath.Join(home, "wt2", ".git"))
 		require.NoError(t, err)
 		assert.Equal(t, wt, filepath.Clean(env.GitDir))
+	})
+
+	t.Run("gitdir file through a link", func(t *testing.T) {
+		// The ".." of the gitdir file apply to the real directory that
+		// holds it, not to the link's parent.
+		home := cleanGitEnv(t)
+		gitDir := filepath.Join(home, "real", "target", ".git")
+		initRepo(t, gitDir, "")
+		writeFile(t, filepath.Join(home, "real", "proj", ".git"), "gitdir: ../target/.git\n")
+		symlink(t, filepath.Join(home, "real", "proj"), filepath.Join(home, "proj"))
+
+		env, err := gitconfig.Discover(filepath.Join(home, "proj", ".git"))
+		require.NoError(t, err)
+		assert.Equal(t, gitDir, env.GitDir)
 	})
 
 	t.Run("malformed gitdir file", func(t *testing.T) {
@@ -1323,6 +1473,26 @@ func TestEnvUpdateFileSymlinks(t *testing.T) {
 		assertLink(t, filepath.Join(dir, "d", "l2"), "../real")
 	})
 
+	t.Run("relative target through a directory link", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows removes \"..\" from a path before following links")
+		}
+		// cfg/link -> d/../real, with cfg/d -> ../store/sub: the ".." is
+		// that of store/sub, so the file is store/real, not cfg/real.
+		dir := tempDir(t)
+		target := filepath.Join(dir, "store", "real")
+		decoy := filepath.Join(dir, "cfg", "real")
+		writeFile(t, target, "[a]\n\tk = v\n")
+		writeFile(t, decoy, "[a]\n\tk = v\n")
+		require.NoError(t, os.Mkdir(filepath.Join(dir, "store", "sub"), 0o755))
+		symlink(t, "../store/sub", filepath.Join(dir, "cfg", "d"))
+		symlink(t, "d/../real", filepath.Join(dir, "cfg", "link"))
+
+		require.NoError(t, gitconfig.Env{}.UpdateFile(filepath.Join(dir, "cfg", "link"), set))
+		assert.Equal(t, "[a]\n\tk = w\n", readFile(t, target))
+		assert.Equal(t, "[a]\n\tk = v\n", readFile(t, decoy))
+	})
+
 	t.Run("dangling link creates the target", func(t *testing.T) {
 		dir := tempDir(t)
 		link := filepath.Join(dir, "link")
@@ -1586,6 +1756,23 @@ func TestEnvUpdateFilePermissions(t *testing.T) {
 		})
 	}
 
+	t.Run("lock private until written", func(t *testing.T) {
+		path := filepath.Join(tempDir(t), "config")
+		writeFile(t, path, "[a]\n\tk = v\n")
+		require.NoError(t, os.Chmod(path, 0o644))
+
+		err := gitconfig.Env{}.UpdateFile(path, func(f *gitconfig.File) error {
+			fi, err := os.Stat(path + ".lock")
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+			return f.Set("a.k", "w")
+		})
+		require.NoError(t, err)
+		fi, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o644), fi.Mode().Perm())
+	})
+
 	t.Run("new file", func(t *testing.T) {
 		// As any new file: 0666 minus the umask.
 		dir := tempDir(t)
@@ -1685,6 +1872,16 @@ func BenchmarkEnv(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			_, _ = env.LoadProtected()
+		}
+	})
+	b.Run("LoadFileManyGitdirConditions", func(b *testing.B) {
+		// The git directory's real path is resolved once per load, not
+		// once per condition.
+		path := filepath.Join(tempDir(b), "config")
+		writeFile(b, path, strings.Repeat("[includeIf \"gitdir:/nope/\"]\n\tpath = x\n", 1000))
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = env.LoadFile(path)
 		}
 	})
 	b.Run("UpdateFile", func(b *testing.B) {

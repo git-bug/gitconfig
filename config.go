@@ -2,6 +2,7 @@ package gitconfig
 
 import (
 	"iter"
+	"slices"
 )
 
 // Config is an immutable, ordered set of entries, from a single file or from
@@ -14,40 +15,103 @@ import (
 // treats it as absent. Keys are usually constants in the caller's code;
 // check them once with ParseKey, for example in a test.
 //
-// Methods returning a small result the caller owns return a slice (GetAll,
-// Subsections); methods walking the configuration return an iterator (All,
-// Section, Subsection).
+// When a key has several values, the last one wins, as in git: Get, Value,
+// Bool, Int and Path use it, GetAll returns them all.
 type Config struct {
-	// unexported
+	entries []Entry
+	index   map[Key][]int // positions in entries, by key
+
+	// subsections lists the distinct subsections of each section, in order
+	// of first appearance.
+	subsections map[string][]string
+}
+
+// newConfig returns a Config of entries. It takes ownership of the slice.
+func newConfig(entries []Entry) *Config {
+	c := &Config{
+		entries:     entries,
+		index:       make(map[Key][]int),
+		subsections: make(map[string][]string),
+	}
+	seen := make(map[sectionKey]bool)
+	for i, e := range entries {
+		c.index[e.Key] = append(c.index[e.Key], i)
+		if sk := e.Key.sectionKey(); sk.hasSub && !seen[sk] {
+			seen[sk] = true
+			c.subsections[sk.section] = append(c.subsections[sk.section], sk.subsection)
+		}
+	}
+	return c
+}
+
+// lookup returns the positions of the entries of key.
+func (c *Config) lookup(key string) []int {
+	if c == nil {
+		return nil
+	}
+	k, ok := parseKey(key)
+	if !ok {
+		return nil
+	}
+	return c.index[k]
+}
+
+// filter returns the entries of one section or subsection.
+func (c *Config) filter(sk sectionKey) iter.Seq[Entry] {
+	return func(yield func(Entry) bool) {
+		if c == nil {
+			return
+		}
+		for _, e := range c.entries {
+			if e.Key.sectionKey() == sk && !yield(e) {
+				return
+			}
+		}
+	}
 }
 
 // Get returns the last entry for key, as `git config --get` does.
 func (c *Config) Get(key string) (Entry, bool) {
-	panic("not implemented")
+	idx := c.lookup(key)
+	if len(idx) == 0 {
+		return Entry{}, false
+	}
+	return c.entries[idx[len(idx)-1]], true
 }
 
 // GetAll returns every entry for key, in order. The returned slice is owned
 // by the caller.
 func (c *Config) GetAll(key string) []Entry {
-	panic("not implemented")
+	idx := c.lookup(key)
+	if len(idx) == 0 {
+		return nil
+	}
+	out := make([]Entry, len(idx))
+	for i, j := range idx {
+		out[i] = c.entries[j]
+	}
+	return out
 }
 
 // All returns every entry, in order.
 func (c *Config) All() iter.Seq[Entry] {
-	panic("not implemented")
+	if c == nil {
+		return slices.Values([]Entry(nil))
+	}
+	return slices.Values(c.entries)
 }
 
 // Section returns every entry of section [section] itself, in order; entries
 // of its subsections are not included. section is case-insensitive.
 func (c *Config) Section(section string) iter.Seq[Entry] {
-	panic("not implemented")
+	return c.filter(sectionKey{section: lowerASCII(section)})
 }
 
 // Subsection returns every entry of subsection [section "sub"], in order.
 // section is case-insensitive, sub is case-sensitive. sub "" is the empty
 // subsection [section ""], distinct from [section].
 func (c *Config) Subsection(section, sub string) iter.Seq[Entry] {
-	panic("not implemented")
+	return c.filter(sectionKey{lowerASCII(section), sub, true})
 }
 
 // Subsections returns the distinct subsections of section, in order of first
@@ -55,34 +119,74 @@ func (c *Config) Subsection(section, sub string) iter.Seq[Entry] {
 // Entries of [section] itself have no subsection and are not listed; ""
 // stands for [section ""].
 func (c *Config) Subsections(section string) []string {
-	panic("not implemented")
+	if c == nil {
+		return nil
+	}
+	return slices.Clone(c.subsections[lowerASCII(section)])
 }
 
 // Value returns the last value for key, or def if key is absent.
 func (c *Config) Value(key string, def string) string {
-	panic("not implemented")
+	if e, ok := c.Get(key); ok {
+		return e.Value
+	}
+	return def
 }
 
 // Bool returns the last value for key as a boolean, or def if key is absent.
 // A value that is not a valid boolean is a *ValueError; the result is then
 // def. To tell an absent key from one set to def, use Get and Entry.Bool.
 func (c *Config) Bool(key string, def bool) (bool, error) {
-	panic("not implemented")
+	e, ok := c.Get(key)
+	if !ok {
+		return def, nil
+	}
+	b, err := e.Bool()
+	if err != nil {
+		return def, err
+	}
+	return b, nil
 }
 
 // Int returns the last value for key as an integer, or def if key is absent.
 // A value that is not a valid integer is a *ValueError; the result is then
 // def.
 func (c *Config) Int(key string, def int64) (int64, error) {
-	panic("not implemented")
+	e, ok := c.Get(key)
+	if !ok {
+		return def, nil
+	}
+	n, err := e.Int()
+	if err != nil {
+		return def, err
+	}
+	return n, nil
 }
 
-// Path returns the last value for key as a path, as Entry.Path does with
-// home, usually Env.Home. If key is absent, def is expanded the same way. A
-// value or a def that cannot be expanded is a *ValueError (for def, its Entry
-// has the key, Value def and a zero Origin); the result is then def as given.
+// Path returns the last value for key expanded as a path by Entry.Path, or
+// def if key is absent, expanded the same way. home is the home directory,
+// usually Env.Home.
+//
+// A value that cannot be expanded is a *ValueError, and the result is then
+// def, unexpanded. This also holds for def itself: its error reports it
+// with an empty Origin, and a zero Key if key is invalid.
 func (c *Config) Path(key, home, def string) (string, error) {
-	panic("not implemented")
+	e, ok := c.Get(key)
+	if !ok {
+		// Expand def as an entry of key, so that an error names the key.
+		k, _ := parseKey(key)
+		e = Entry{Key: k, Value: def}
+	}
+	p, err := e.Path(home)
+	if err != nil {
+		return def, err
+	}
+	return p, nil
+}
+
+// error returns a *ValueError for e read as typ.
+func (e Entry) error(typ string, err error) error {
+	return &ValueError{Entry: e, Type: typ, Err: err}
 }
 
 // Entry is one occurrence of a key in a configuration file. It is plain
@@ -111,11 +215,11 @@ type Origin struct {
 	// Env.UpdateScope has that scope.
 	Scope Scope
 
-	// File is the file that holds the entry, possibly an included one, as
-	// git opened it: an include's relative path is joined to the including
-	// file's directory and not cleaned. "" for git -c. On Windows, the
-	// separators are those of the paths given, where git writes some
-	// paths with '/'.
+	// File is the file that holds the entry, possibly an included one, or
+	// "" for the command line. Like git, an included file's relative path
+	// is appended to the including file's directory without cleaning it:
+	// "/home/u/.config/git/../work.inc". On Windows the separators are
+	// kept as given, where git shows some paths with '/'.
 	File string
 
 	Line int // 1-based; 0 for git -c
@@ -125,24 +229,49 @@ type Origin struct {
 // are true; false, no, off, 0 and "" are false; an implicit value is true.
 // Case is ignored. Anything else is a *ValueError.
 func (e Entry) Bool() (bool, error) {
-	panic("not implemented")
+	if e.Implicit {
+		return true, nil
+	}
+	b, err := parseBool(e.Value)
+	if err != nil {
+		return false, e.error("bool", err)
+	}
+	return b, nil
 }
 
-// Int interprets the value as git does, including the k, m and g suffixes.
-// An invalid unit, an out-of-range value or an implicit value is a
-// *ValueError.
+// Int interprets the value as git does: a decimal number, or octal with a
+// leading "0" and hexadecimal with a leading "0x" as in C (so "010" is 8),
+// optionally followed by a unit k, m or g (×1024, ×1024², ×1024³), case
+// ignored. An invalid number or unit, a value out of the int64 range or an
+// implicit value is a *ValueError.
 func (e Entry) Int() (int64, error) {
-	panic("not implemented")
+	if e.Implicit {
+		return 0, e.error("int", nil)
+	}
+	n, err := parseInt(e.Value)
+	if err != nil {
+		return 0, e.error("int", err)
+	}
+	return n, nil
 }
 
 // Path interprets the value as a path, as git does for `--type=path` and for
-// include paths: a leading "~/" is replaced by home, usually Env.Home. A "~/"
-// with an empty home, a leading "%(prefix)/" (the prefix of the git binary,
-// which depends on how it was built) and an implicit value are a
-// *ValueError. Config.Path
-// does the same for a key.
+// include paths: a leading "~/", or a value of "~" alone, is replaced by
+// home, usually Env.Home. Other values are returned unchanged; relative
+// paths are not resolved.
+//
+// These are a *ValueError: "~" or "~/" with an empty home, "~user/" (not
+// supported), a leading "%(prefix)/" (the install prefix of the git binary,
+// unknown to this package) and an implicit value.
 func (e Entry) Path(home string) (string, error) {
-	panic("not implemented")
+	if e.Implicit {
+		return "", e.error("path", nil)
+	}
+	p, err := expandPath(e.Value, home)
+	if err != nil {
+		return "", e.error("path", err)
+	}
+	return p, nil
 }
 
 // Key is the canonical form of a key, as printed by `git config --list`:

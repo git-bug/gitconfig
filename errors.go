@@ -17,6 +17,8 @@ import (
 //     writing), a *KeyError for an invalid CommandEntry key, and ErrNoScope
 //     unwrapped, as no file is concerned. The error returned by the
 //     callback of Env.UpdateFile or Env.UpdateScope is returned as is.
+//   - Discover also returns an *EnvError for an environment variable it
+//     cannot interpret.
 var (
 	// ErrNotFound is returned when the section or subsection to rename is
 	// absent. Removing something absent is not an error.
@@ -88,14 +90,31 @@ type FileError struct {
 }
 
 func (e *FileError) Error() string {
-	var se *SyntaxError
-	if errors.As(e.Err, &se) && se.File == e.Path {
+	// A syntax error already names the file: don't repeat it.
+	if se, ok := errors.AsType[*SyntaxError](e.Err); ok && se.File == e.Path {
 		return se.Error()
 	}
 	return fmt.Sprintf("gitconfig: %s: %v", e.Path, e.Err)
 }
 
 func (e *FileError) Unwrap() error {
+	return e.Err
+}
+
+// EnvError reports an environment variable Discover cannot interpret, as
+// git refuses it: a malformed GIT_CONFIG_NOSYSTEM, GIT_CONFIG_COUNT or
+// GIT_CONFIG_PARAMETERS, or a missing GIT_CONFIG_KEY_<n> or
+// GIT_CONFIG_VALUE_<n>.
+type EnvError struct {
+	Var string // the variable's name, e.g. "GIT_CONFIG_COUNT"
+	Err error  // the reason
+}
+
+func (e *EnvError) Error() string {
+	return fmt.Sprintf("gitconfig: %s: %v", e.Var, e.Err)
+}
+
+func (e *EnvError) Unwrap() error {
 	return e.Err
 }
 
@@ -126,7 +145,11 @@ func (e *ValueError) Error() string {
 	if e.Entry.Implicit {
 		msg = fmt.Sprintf("gitconfig: missing %s value for %q", e.Type, e.Entry.Key.String())
 	} else {
-		msg = fmt.Sprintf("gitconfig: bad %s value %q for %q", e.Type, e.Entry.Value, e.Entry.Key.String())
+		msg = fmt.Sprintf("gitconfig: bad %s value %q", e.Type, e.Entry.Value)
+		// No key for the default of Config.Path given an invalid key.
+		if e.Entry.Key != (Key{}) {
+			msg += fmt.Sprintf(" for %q", e.Entry.Key.String())
+		}
 	}
 	if e.Entry.Origin.File != "" {
 		msg += fmt.Sprintf(" in file %s", e.Entry.Origin.File)

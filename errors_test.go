@@ -57,6 +57,18 @@ func TestErrorMessagesEscapeControlCharacters(t *testing.T) {
 		assert.NotContains(t, err.Error(), "\x1b")
 		assert.NotContains(t, err.Error(), "\r")
 	})
+
+	t.Run("EnvError", func(t *testing.T) {
+		for _, name := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_NOSYSTEM"} {
+			cleanGitEnv(t)
+			t.Setenv(name, evil)
+			_, err := gitconfig.Discover("")
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "\x1b")
+			assert.NotContains(t, err.Error(), "\r")
+			assert.Contains(t, err.Error(), name)
+		}
+	})
 }
 
 func TestErrorMessagesHaveContext(t *testing.T) {

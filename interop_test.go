@@ -781,6 +781,11 @@ var gitScenarios = []gitScenario{
 				"onbranch:mai",
 				"onbranch:other",
 				"onbranch:main/",
+				"onbranch:[[:lower:]]ain",
+				"onbranch:[[:digit:]]ain",
+				"onbranch:m[![:digit:]]in",
+				"onbranch:[[:bogus:]]ain",
+				"onbranch:ma[in",
 				"nosuch:x",
 			}
 			var global strings.Builder

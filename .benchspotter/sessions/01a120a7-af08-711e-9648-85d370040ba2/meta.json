@@ -1,0 +1,24 @@
+{
+	"name": "edit-benches",
+	"benchs": [
+		"BenchmarkEnv/Load",
+		"BenchmarkEnv/LoadProtected",
+		"BenchmarkEnv/LoadFileManyGitdirConditions",
+		"BenchmarkEnv/UpdateFile",
+		"BenchmarkEnv/UpdateFileUnchanged",
+		"BenchmarkEdit"
+	],
+	"git_commit": "9f097cd6b40f09dd20e5e00b92bd6ded3ca0f281",
+	"machine": {
+		"goos": "linux",
+		"goarch": "amd64",
+		"num_cpu": 12,
+		"physical_cores": 6,
+		"threads_per_core": 2,
+		"cpu": "AMD Ryzen 5 3600 6-Core Processor",
+		"cache_l1d": 32768,
+		"cache_l2": 524288,
+		"cache_l3": 16777216
+	},
+	"go_version": "go1.27.1"
+}

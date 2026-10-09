@@ -491,6 +491,12 @@ var unsetCases = []editCase{
 	{"entry before any header kept",
 		"k = v\n[a]\n\tj = w\n", edits(unset("a.j")),
 		"k = v\n"},
+	{"only key after a BOM",
+		"\xef\xbb\xbf[a]\n\tk = v\n", edits(unset("a.k")),
+		"\xef\xbb\xbf\n"},
+	{"section after a BOM removed",
+		"\xef\xbb\xbf  [a]\r\n\tk = v\r\n[b]\r\n\tx = y\r\n", edits(unset("a.k")),
+		"\xef\xbb\xbf\n[b]\r\n\tx = y\r\n"},
 
 	// E5: the emptied section is removed unless a comment lies between
 	// the previous entry or header and the next section.
@@ -1051,6 +1057,43 @@ func BenchmarkParse(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
 					_, _ = gitconfig.Parse("f", data)
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkEdit measures edits that touch many lines at once, on inputs
+// built to hit their slow paths; each iteration parses the file first.
+// Throughput (MB/s) must not fall as the size grows: these edits are linear.
+func BenchmarkEdit(b *testing.B) {
+	edits := []struct {
+		name string
+		gen  func(n int) []byte
+		edit func(f *gitconfig.File) error
+	}{
+		{"UnsetAll one section", func(n int) []byte { return sized("[a]\n", "\tk = v\n", n) }, func(f *gitconfig.File) error {
+			_, err := f.UnsetAll("a.k")
+			return err
+		}},
+		{"UnsetAll section per value", func(n int) []byte { return sized("", "[a]\n\tk = v\n", n) }, func(f *gitconfig.File) error {
+			_, err := f.UnsetAll("a.k")
+			return err
+		}},
+		{"RenameSection one line", func(n int) []byte { return append(sized("", "[a]", n), " k = v\n"...) }, func(f *gitconfig.File) error {
+			return f.RenameSection("a", "b")
+		}},
+	}
+	for _, e := range edits {
+		for _, n := range []int{1 << 10, 1 << 16, 1 << 20} {
+			data := e.gen(n)
+			b.Run(fmt.Sprintf("%s/%dKiB", e.name, n>>10), func(b *testing.B) {
+				b.SetBytes(int64(len(data)))
+				b.ReportAllocs()
+				for b.Loop() {
+					f, err := gitconfig.Parse("f", data)
+					require.NoError(b, err)
+					require.NoError(b, e.edit(f))
 				}
 			})
 		}
