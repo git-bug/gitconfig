@@ -22,8 +22,15 @@ func updateFile(path string, scope Scope, fn func(*File) error) (err error) {
 		return err
 	}
 
+	// The lock gets the target's permissions before the new content is
+	// written: until then, a lock replacing a file that exists is private,
+	// so that no one can open it and read a private file through it.
+	perm := os.FileMode(0o666)
+	if _, err := os.Lstat(target); err == nil {
+		perm = 0o600
+	}
 	lockPath := target + ".lock"
-	lock, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+	lock, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return &FileError{Path: lockPath, Err: ErrLocked}
@@ -60,9 +67,6 @@ func updateFile(path string, scope Scope, fn func(*File) error) (err error) {
 		return nil
 	}
 
-	if _, err := lock.Write(f.data); err != nil {
-		return &FileError{Path: lockPath, Err: err}
-	}
 	if exists && runtime.GOOS != "windows" {
 		fi, err := os.Stat(target)
 		if err != nil {
@@ -72,6 +76,9 @@ func updateFile(path string, scope Scope, fn func(*File) error) (err error) {
 		if err := lock.Chmod(fi.Mode().Perm()); err != nil {
 			return &FileError{Path: lockPath, Err: err}
 		}
+	}
+	if _, err := lock.Write(f.data); err != nil {
+		return &FileError{Path: lockPath, Err: err}
 	}
 	if err := lock.Close(); err != nil {
 		return &FileError{Path: lockPath, Err: err}
@@ -116,7 +123,10 @@ func followLinks(path string) (string, error) {
 			return "", &FileError{Path: p, Err: err}
 		}
 		if !filepath.IsAbs(link) {
-			link = filepath.Join(filepath.Dir(p), link)
+			// Not filepath.Join: cleaning would drop a ".." before the
+			// system follows the links leading to it.
+			dir, _ := filepath.Split(p)
+			link = dir + link
 		}
 		p = link
 	}

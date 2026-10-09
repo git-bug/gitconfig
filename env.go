@@ -211,6 +211,13 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 		return false, err
 	}
 	dir = realPath(dir)
+	if !filepath.IsAbs(dir) {
+		// The entries that count are absolute. Joining the real working
+		// directory drops a leading ".." correctly: it has no links.
+		if wd, err := os.Getwd(); err == nil {
+			dir = filepath.Join(realPath(wd), dir)
+		}
+	}
 	safe := false
 	for _, entry := range c.GetAll("safe.directory") {
 		switch v := entry.Value; {
@@ -220,7 +227,8 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 			safe = true
 		case strings.HasSuffix(v, "/*"):
 			prefix, err := Entry{Value: strings.TrimSuffix(v, "*")}.Path(e.Home)
-			if err != nil {
+			if err != nil || !filepath.IsAbs(prefix) {
+				// As for exact entries, relative ones are skipped.
 				continue
 			}
 			if p, err := filepath.EvalSymlinks(prefix); err == nil {

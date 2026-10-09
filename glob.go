@@ -1,10 +1,14 @@
 package gitconfig
 
+import "strings"
+
 // The patterns of includeIf "gitdir:" and "onbranch:" are matched as paths:
 // '*' and '?' do not match '/', "**/" at the start of a segment matches any
 // number of directories, "**" ending the pattern after a '/' (or alone)
 // matches anything, "[...]" is a class of characters ("[!...]" or "[^...]"
-// negated, "a-z" a range) and '\' quotes the next character.
+// negated, "a-z" a range, "[:digit:]" a named class) and '\' quotes the
+// next character. A pattern with an unterminated class, or an unknown class
+// name, matches nothing, as in git.
 //
 // The pattern is compiled into tokens and matched by simulating every
 // possible position in the pattern at once, so that the time is linear in
@@ -29,8 +33,11 @@ type globToken struct {
 	negate bool      // globClass
 }
 
-func compileGlob(p string) []globToken {
+// compileGlob compiles p, or returns false if it is malformed.
+func compileGlob(p string) ([]globToken, bool) {
 	var toks []globToken
+	// A "[:" starts a named class only if a ":]" follows somewhere.
+	lastColon := strings.LastIndex(p, ":]")
 	segStart := true
 	for i := 0; i < len(p); {
 		c := p[i]
@@ -56,13 +63,14 @@ func compileGlob(p string) []globToken {
 			toks = append(toks, globToken{kind: globAny})
 			i++
 		case c == '[':
-			if tok, n, ok := compileClass(p[i:]); ok {
-				toks = append(toks, tok)
-				i += n
-			} else {
-				toks = append(toks, globToken{kind: globLit, c: c})
-				i++
+			tok, end, ok := compileClass(p, i, lastColon)
+			if !ok {
+				// Failing at once keeps the work linear: no other '['
+				// rescans the rest of the pattern.
+				return nil, false
 			}
+			toks = append(toks, tok)
+			i = end
 		case c == '\\' && i+1 < len(p):
 			toks = append(toks, globToken{kind: globLit, c: p[i+1]})
 			i += 2
@@ -72,14 +80,15 @@ func compileGlob(p string) []globToken {
 		}
 		segStart = toks[len(toks)-1].kind == globLit && toks[len(toks)-1].c == '/'
 	}
-	return toks
+	return toks, true
 }
 
-// compileClass compiles the class at the start of p, and returns its length,
-// or false if it is not terminated.
-func compileClass(p string) (globToken, int, bool) {
+// compileClass compiles the class starting at p[start], and returns the
+// index past its end, or false if it is not terminated or names an unknown
+// class. lastColon is the index of the last ":]" in p.
+func compileClass(p string, start, lastColon int) (globToken, int, bool) {
 	tok := globToken{kind: globClass}
-	i := 1
+	i := start + 1
 	if i < len(p) && (p[i] == '!' || p[i] == '^') {
 		tok.negate = true
 		i++
@@ -91,6 +100,18 @@ func compileClass(p string) (globToken, int, bool) {
 			return tok, i + 1, true
 		}
 		first = false
+		if c == '[' && i+1 < len(p) && p[i+1] == ':' && i+2 <= lastColon {
+			// Found, as some ":]" starts at or after i+2. A known name
+			// ends within a few bytes, and an unknown one fails.
+			n := strings.Index(p[i+2:], ":]")
+			ranges, ok := namedClasses[p[i+2:i+2+n]]
+			if !ok {
+				return globToken{}, 0, false
+			}
+			tok.ranges = append(tok.ranges, ranges...)
+			i += 2 + n + 2
+			continue
+		}
 		if c == '\\' && i+1 < len(p) {
 			i++
 			c = p[i]
@@ -108,6 +129,22 @@ func compileClass(p string) (globToken, int, bool) {
 		i++
 	}
 	return globToken{}, 0, false
+}
+
+// namedClasses are the ranges of the named classes, in ASCII.
+var namedClasses = map[string][][2]byte{
+	"alnum":  {{'0', '9'}, {'A', 'Z'}, {'a', 'z'}},
+	"alpha":  {{'A', 'Z'}, {'a', 'z'}},
+	"blank":  {{' ', ' '}, {'\t', '\t'}},
+	"cntrl":  {{0, 31}, {127, 127}},
+	"digit":  {{'0', '9'}},
+	"graph":  {{'!', '~'}},
+	"lower":  {{'a', 'z'}},
+	"print":  {{' ', '~'}},
+	"punct":  {{'!', '/'}, {':', '@'}, {'[', '`'}, {'{', '~'}},
+	"space":  {{'\t', '\r'}, {' ', ' '}},
+	"upper":  {{'A', 'Z'}},
+	"xdigit": {{'0', '9'}, {'A', 'F'}, {'a', 'f'}},
 }
 
 func (t globToken) inClass(c byte, fold bool) bool {
@@ -135,7 +172,10 @@ func sameByte(a, b byte, fold bool) bool {
 // globMatch reports whether name matches pattern. With fold, the case of
 // ASCII letters is ignored.
 func globMatch(pattern, name string, fold bool) bool {
-	toks := compileGlob(pattern)
+	toks, ok := compileGlob(pattern)
+	if !ok {
+		return false
+	}
 	n := int32(len(toks))
 	// A state is a position in the pattern, 2*s for token s, or 2*s+1 for
 	// the inside of the directories matched by the globDirs token s. Only
