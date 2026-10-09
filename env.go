@@ -55,9 +55,10 @@ func (s Scope) String() string {
 //
 // Configuration can come from someone else: a repository on a shared disk,
 // an unpacked archive, a file reached through include.path. Loading such a
-// file is safe (bounded, see Load), but its values are not to be trusted:
-// check SafeDirectory before loading or editing a repository's
-// configuration, as git does.
+// file is safe (bounded, see Load), but its values are not to be trusted.
+// Discover refuses a repository git would refuse (ErrUntrusted); an Env
+// filled by hand is not checked, as git does not check a repository named
+// by GIT_DIR.
 type Env struct {
 	// Home is the user's home directory. Load uses it to expand "~/" in
 	// include paths; pass it to Config.Path and Entry.Path for values.
@@ -104,13 +105,20 @@ type CommandEntry struct {
 // XDG_CONFIG_HOME, …), the user's home directory, the working directory and
 // the platform's system configuration file.
 //
-// gitDir is the repository's git directory, such as ".git", or the
-// repository itself for a bare one; it is made absolute. If gitDir is a file
-// holding "gitdir: <path>", as .git is in a linked worktree or a submodule,
-// the path it names is used. Finding the repository is left to the caller:
-// Discover does not search parent directories and does not read GIT_DIR.
-// Pass "" when not in a repository: only the system, global and command-line
-// scopes exist then.
+// dir is where the repository is found, as git finds it when started there
+// (git -C dir): a working tree (a directory holding .git), its .git, or a
+// git directory, such as a bare repository; it is made absolute. A .git
+// file holding "gitdir: <path>", as in a linked worktree or a submodule, is
+// followed. Finding the repository is left to the caller: Discover does not
+// search parent directories and does not read GIT_DIR. Pass "" when not in
+// a repository: only the system, global and command-line scopes exist then.
+//
+// The repository must be trusted, as git requires: owned by the current
+// user (on Unix, also the SUDO_UID user for root; on Windows, the
+// Administrators group for an administrator), or listed in safe.directory.
+// Otherwise Discover fails with ErrUntrusted, in a *FileError naming the
+// path to list. As in git, that path is the working tree when dir is one,
+// dir itself otherwise: pass the working tree when there is one.
 //
 // Without a home directory, Home is "" and the global files are those git
 // reads then: the XDG file if XDG_CONFIG_HOME is set, no ~/.gitconfig.
@@ -125,8 +133,8 @@ type CommandEntry struct {
 //
 // It is the only function of this package that reads the process
 // environment.
-func Discover(gitDir string) (Env, error) {
-	return discover(gitDir, osEnviron{})
+func Discover(dir string) (Env, error) {
+	return discover(dir, osEnviron{})
 }
 
 // Load returns the effective configuration: system, global, local, worktree
@@ -201,7 +209,7 @@ func (l *loader) global() error {
 // includes followed: system, global and command line, in that order. This is
 // what git uses for keys a repository must not be able to set, such as
 // safe.directory or safe.bareRepository. The repository's configuration is
-// not read, so this is safe to call before SafeDirectory.
+// not read.
 func (e Env) LoadProtected() (*Config, error) {
 	l, err := e.newLoader()
 	if err != nil {
@@ -219,21 +227,11 @@ func (e Env) LoadProtected() (*Config, error) {
 	return l.config(), nil
 }
 
-// SafeDirectory reports whether dir is allowed by the safe.directory values
-// of LoadProtected, with git's matching rules ("*", a trailing "/*", an empty
-// value resetting the list). dir is the repository's working tree, or its
-// git directory for a bare repository, as git checks. It may be relative to
-// the working directory; symbolic links are resolved on both sides.
-//
-// The repository's configuration is not read. It does not check who owns
-// dir: git trusts a repository owned by the current user without consulting
-// safe.directory, and that check is platform specific and left to the
-// caller. A false result therefore means "not listed", not "unsafe".
-func (e Env) SafeDirectory(dir string) (bool, error) {
-	c, err := e.LoadProtected()
-	if err != nil {
-		return false, err
-	}
+// safeDirectory reports whether dir is allowed by the safe.directory values
+// of c, with git's matching rules ("*", a trailing "/*", an empty value
+// resetting the list). dir may be relative to the working directory;
+// symbolic links are resolved on both sides.
+func safeDirectory(c *Config, dir, home string) bool {
 	dir = realPath(dir)
 	if !filepath.IsAbs(dir) {
 		// The entries that count are absolute. Joining the real working
@@ -250,7 +248,7 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 		case v == "*":
 			safe = true
 		case strings.HasSuffix(v, "/*"):
-			prefix, err := expandPath(strings.TrimSuffix(v, "*"), e.Home)
+			prefix, err := expandPath(strings.TrimSuffix(v, "*"), home)
 			if err != nil || !filepath.IsAbs(prefix) {
 				// As for exact entries, relative ones are skipped.
 				continue
@@ -261,7 +259,7 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 				}
 			}
 		default:
-			p, err := expandPath(v, e.Home)
+			p, err := expandPath(v, home)
 			if err != nil || !filepath.IsAbs(p) {
 				// "." and unexpandable values are skipped.
 				continue
@@ -271,7 +269,7 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 			}
 		}
 	}
-	return safe, nil
+	return safe
 }
 
 // realPath returns path with symbolic links resolved, or cleaned if it
@@ -446,7 +444,7 @@ func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
 // Following the symbolic link in step 1 is what git does, and what dotfile
 // managers rely on. It also means that whoever controls the directory of
 // path controls which file is written: do not edit the configuration of a
-// repository you have not checked with SafeDirectory and an ownership check.
+// repository that Discover has not accepted.
 func (e Env) UpdateFile(path string, fn func(*File) error) error {
 	return updateFile(path, ScopeFile, fn)
 }

@@ -18,7 +18,8 @@ import (
 //     unwrapped, as no file is concerned. The error returned by the
 //     callback of Env.UpdateFile or Env.UpdateScope is returned as is.
 //   - Discover also returns an *EnvError for an environment variable it
-//     cannot interpret.
+//     cannot interpret, and ErrUntrusted in a *FileError for a repository
+//     git would refuse.
 var (
 	// ErrNotFound is returned when the section or subsection to rename is
 	// absent. Removing something absent is not an error.
@@ -60,6 +61,11 @@ var (
 	// ErrNoScope is returned when a scope does not exist or cannot be written
 	// in an Env.
 	ErrNoScope = errors.New("gitconfig: scope not available")
+
+	// ErrUntrusted is returned by Discover for a repository git would
+	// refuse: not owned by the current user, and not listed in
+	// safe.directory. The *FileError's Path is the path to list.
+	ErrUntrusted = errors.New("gitconfig: repository not owned by the current user nor listed in safe.directory")
 
 	// ErrClosed is returned when a File is edited after the callback of
 	// Env.UpdateFile or Env.UpdateScope has returned.

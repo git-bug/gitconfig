@@ -3,6 +3,7 @@ package gitconfig
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,7 +25,7 @@ func get(env environ, key string) string {
 	return v
 }
 
-func discover(gitDir string, env environ) (Env, error) {
+func discover(dir string, env environ) (Env, error) {
 	var e Env
 
 	e.Home = get(env, "HOME")
@@ -77,23 +78,74 @@ func discover(gitDir string, env environ) (Env, error) {
 	}
 	e.Command = append(cmd, params...)
 
-	if gitDir != "" {
-		e.GitDir, err = resolveGitDir(gitDir)
-		if err != nil {
+	if dir != "" {
+		var owned []string
+		if e.GitDir, owned, err = findRepo(dir); err != nil {
+			return Env{}, err
+		}
+		if err := e.checkTrust(owned, get(env, "SUDO_UID")); err != nil {
 			return Env{}, err
 		}
 	}
 	return e, nil
 }
 
-// resolveGitDir makes gitDir absolute and follows a "gitdir: <path>" file.
-func resolveGitDir(gitDir string) (string, error) {
-	gitDir, err := filepath.Abs(gitDir)
-	if err != nil {
-		return "", err
+// findRepo returns the git directory of the repository at dir, as git finds
+// it when started there, and the paths whose owner git checks. In a working
+// tree (dir holds .git, or is a "gitdir:" file), they are the working tree,
+// its .git and the git directory; elsewhere, dir alone. The first is the
+// path safe.directory lists.
+func findRepo(dir string) (gitDir string, owned []string, err error) {
+	if dir, err = filepath.Abs(dir); err != nil {
+		return "", nil, err
 	}
-	// A directory is the git directory itself. One that does not exist (yet)
-	// is not an error here: loading finds no files in it.
+	dot := filepath.Join(dir, ".git")
+	if fi, err := os.Stat(dir); err == nil && fi.Mode().IsRegular() {
+		dir, dot = filepath.Dir(dir), dir
+	} else if _, err := os.Stat(dot); errors.Is(err, fs.ErrNotExist) {
+		// Also a directory that does not exist (yet): loading finds no
+		// files in it.
+		return dir, []string{dir}, nil
+	} else if err != nil {
+		return "", nil, &FileError{Path: dot, Err: err}
+	}
+	gitDir, err = resolveGitDir(dot)
+	return gitDir, []string{dir, dot, gitDir}, err
+}
+
+// checkTrust fails with ErrUntrusted unless the current user owns every
+// path of owned that exists, or safe.directory lists the first.
+func (e Env) checkTrust(owned []string, sudoUID string) error {
+	for _, p := range owned {
+		ok, err := ownedByCurrentUser(p, sudoUID)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return &FileError{Path: p, Err: err}
+		}
+		if ok {
+			continue
+		}
+		// Without the repository, as git: its HEAD and path must not
+		// match an includeIf that lists it.
+		p := e
+		p.GitDir = ""
+		c, err := p.LoadProtected()
+		if err != nil {
+			return err
+		}
+		if !safeDirectory(c, owned[0], e.Home) {
+			return &FileError{Path: owned[0], Err: ErrUntrusted}
+		}
+		return nil
+	}
+	return nil
+}
+
+// resolveGitDir follows a "gitdir: <path>" file; any other path is the git
+// directory itself. gitDir is absolute.
+func resolveGitDir(gitDir string) (string, error) {
 	fi, err := os.Stat(gitDir)
 	if err != nil || !fi.Mode().IsRegular() {
 		return gitDir, nil

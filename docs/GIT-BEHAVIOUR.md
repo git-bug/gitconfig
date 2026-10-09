@@ -239,3 +239,64 @@ the same results.
 | `hasconfig:remote.*.url:https://example.com/**` | no until a matching remote is configured, then yes |
 | `git -c 'includeIf.gitdir:./.path=…'` | `error: relative config include conditionals must come from files`, then git goes on without the include, exit 0 *(2.47.3)* — this library fails with `ErrNotAbsolute`, having no one to warn |
 | `gitdir:C:/x/link/`, `GIT_DIR=C:\x\link\proj\.git` with `link` a symbolic link to `work` (Windows) | **no**, while `gitdir:C:/x/work/` (the real path) matches *(2.55.0.windows.5)* — this library compares both paths with `/` and matches |
+
+## Ownership and `safe.directory`
+
+Observed with **git 2.56.0** (`alpine:edge`, Linux), as user `alice` (uid
+1000) unless stated, `bob` being uid 1001. "Refused" means `fatal: detected
+dubious ownership in repository at '<path>'`, exit 128. The repository is
+`/r/w` (working tree) with `.git` inside, all owned by `alice` except the
+path named.
+
+| Owned by `bob` | Result |
+|---|---|
+| nothing | accepted |
+| `/r/w` (top of the working tree) | refused, at `/r/w` — also when run from a subdirectory owned by `alice` |
+| `/r/w/.git` (directory) | refused, at `/r/w` |
+| `/r/w/.git` as a `gitdir:` file | refused, at `/r/w` |
+| the directory a `gitdir:` file points to | refused, at `/r/w` |
+| `/r/w/.git/config` | accepted: files inside the git directory are not checked |
+| `/r` (parent of the working tree) | accepted |
+| a symbolic link to `/r/w` (`chown -h`), used as `-C` | accepted: only the target counts |
+| a bare repository `/r/b.git` | refused, at `/r/b.git` |
+| `/r/b.git/config` in a bare repository | accepted |
+| linked worktree `/r/lw`: `/r/w/.git/worktrees/lw` | refused, at `/r/lw` |
+| linked worktree `/r/lw`: `/r/w/.git` or `/r/w` | accepted: the main repository is not checked |
+| `/r/w`, mode 777, or group `alice` | refused: only the owner uid counts |
+
+| Setup | Result |
+|---|---|
+| `/r/w/.git` owned by `bob`, `-c safe.directory=/r/w` | accepted |
+| `/r/w/.git` owned by `bob`, `-c safe.directory=/r/w/.git` | refused: the entry must name the working tree, whichever path failed |
+| `gitdir:` target owned by `bob`, `safe.directory` = the working tree / the target | accepted / refused |
+| bare `/r/b.git` owned by `bob`, `safe.directory=/r/b.git` | accepted |
+| `/r/w` owned by `bob`, `GIT_DIR=/r/w/.git` (with or without `GIT_WORK_TREE`) | accepted: nothing is checked when the repository is given rather than discovered |
+| `/r/w` owned by `bob`, `git config --show-scope --get-regexp foo` (`foo.bar` in `.git/config`) | exit 1, no output: the repository is treated as absent, its configuration silently skipped |
+| the same, `git config --local --list` | `fatal: --local can only be used inside a git repository`, exit 128 |
+| the same, `git rev-parse --show-toplevel` | refused |
+| as root, repository owned by `alice`, no `SUDO_UID` | refused |
+| as root, owned by `alice`, `SUDO_UID=1000` | accepted |
+| as root, owned by `alice`, `SUDO_UID=1001` or `SUDO_UID=abc` | refused |
+| as root, owned by root, `SUDO_UID=1000` | accepted: root is still trusted |
+| as `alice`, owned by `bob`, `SUDO_UID=1001` | refused: `SUDO_UID` counts only for root |
+| as root, owned by `alice`, `SUDO_UID` = `' 1000'`, `+1000`, `01000` | accepted |
+| as root, owned by `alice`, `SUDO_UID` = `'1000 '`, `1000x` | refused |
+| as root, owned by `alice`, `SUDO_UID=4294968296` (2³² + 1000) | accepted: the value wraps around to 1000 |
+
+What is checked depends on where git starts, not on the layout of the
+repository: started in a working tree, git checks the working tree, its
+`.git` and the git directory, and `safe.directory` must name the working
+tree; started in a git directory, it checks that directory alone, and
+`safe.directory` must name it.
+
+| Setup (`bob` owns the path named) | Result |
+|---|---|
+| normal repository, `git -C /r/w/.git`, `/r/w` owned by `bob` | accepted: the working tree is not checked |
+| normal repository, `git -C /r/w/.git`, `.git` owned by `bob`, `safe.directory=/r/w` / `=/r/w/.git` | refused, at `/r/w/.git` / accepted |
+| bare repository named `.git` at `/r/p/.git`, `/r/p` owned by `bob`, `git -C /r/p/.git` | accepted |
+| the same, `git -C /r/p` | refused, at `/r/p` (git looks for `/r/p/.git` from there) |
+| bare `/r/p/.git` owned by `bob`, `safe.directory=/r/p/.git` / `=/r/p` | accepted / refused, at `/r/p/.git` |
+| bare `/r/dots` with `core.worktree=/r/home` (and `core.bare=false`), `/r/home` owned by `bob` | accepted: `core.worktree` is not checked |
+| the same, `/r/dots` owned by `bob`, `safe.directory=/r/dots` / `=/r/home` | accepted / refused, at `/r/dots` |
+| `--separate-git-dir=/r/sep/x` for `/r/w`, `/r/w` owned by `bob`, `git -C /r/sep/x` | accepted |
+| linked worktree `/r/lw` owned by `bob`, `git -C /r/w/.git/worktrees/lw` / `git -C /r/lw` | accepted / refused, at `/r/lw` |

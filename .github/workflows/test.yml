@@ -29,3 +29,7 @@ jobs:
 
       # Includes the interop tests against the runner's git.
       - run: go test ./...
+
+      # The trust tests give files to another user, which needs root.
+      - if: runner.os != 'Windows'
+        run: sudo -E env "PATH=$PATH" go test -count=1 -run Trust ./...

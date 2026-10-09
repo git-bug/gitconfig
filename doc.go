@@ -13,8 +13,8 @@
 //
 // Reading the effective configuration of a repository and changing a value:
 //
-//	env, err := gitconfig.Discover(".git")
-//	if err != nil { ... }
+//	env, err := gitconfig.Discover(".") // the working tree
+//	if err != nil { ... }               // ErrUntrusted, as git refuses it
 //
 //	cfg, err := env.Load()
 //	if err != nil { ... }

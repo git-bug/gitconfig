@@ -6,12 +6,14 @@ package gitconfig_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1029,4 +1031,38 @@ func TestGitUpdate(t *testing.T) {
 		assert.Equal(t, "[a]\n\tk = ours\n", readFile(t, path))
 	})
 
+}
+
+var dubious = regexp.MustCompile(`dubious ownership in repository at '([^']*)'`)
+
+// TestGitTrust checks that Discover trusts the repositories git trusts, and
+// names the path git names when it refuses one. Without root, only the
+// layouts owned by the current user are compared: on Windows, that covers a
+// test run as an administrator, whose files belong to the Administrators
+// group.
+func TestGitTrust(t *testing.T) {
+	requireGit(t)
+	root := runtime.GOOS != "windows" && os.Geteuid() == 0
+	for _, tc := range trustCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if (len(tc.other) > 0 || tc.sudoUID != "") && !root {
+				t.Skip("needs root, to give files to another user")
+			}
+			dir := tc.prepare(t)
+			start := filepath.Join(dir, tc.start)
+
+			res := runGit(t, dir, processEnv(), "-C", start, "rev-parse", "--git-dir")
+			_, err := gitconfig.Discover(start)
+			if res.code == 0 {
+				require.NoError(t, err, "git trusts it")
+				return
+			}
+			m := dubious.FindStringSubmatch(res.stderr)
+			require.NotNil(t, m, "git fails for another reason: %s", res.stderr)
+			require.ErrorIs(t, err, gitconfig.ErrUntrusted, "git refuses it: %s", res.stderr)
+			fe, ok := errors.AsType[*gitconfig.FileError](err)
+			require.True(t, ok, "got %T", err)
+			assertSamePath(t, m[1], fe.Path)
+		})
+	}
 }

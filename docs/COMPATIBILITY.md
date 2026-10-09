@@ -73,7 +73,12 @@ in [GIT-BEHAVIOUR.md](GIT-BEHAVIOUR.md).
 | System file | set at build time (`$(prefix)/etc/gitconfig`) | `/etc/gitconfig` on Unix, none elsewhere | a git built with another prefix reads another file; callers can set `SystemConfig` |
 | `safe.directory` entry that does not resolve | skipped | the same | 1 |
 | `safe.directory = .` | trusted at the top of a repository | skipped | needs the working directory — *safe default* |
-| Repository ownership check | done by git | left to the caller | platform specific (X5) |
+| Repository ownership check | done when git finds the repository, not for `GIT_DIR` | done by `Discover`, not for an `Env` filled by hand | 1 (X5) |
+| What is checked, and listed in `safe.directory` | depends on where git starts: a working tree, or a git directory | the same, from the path given to `Discover` | 1 — the caller should pass the working tree, which users list |
+| Untrusted repository | `git config` silently skips the local scope; other commands fail | `Discover` fails with `ErrUntrusted` | a silently missing scope surprises; reading less is not safer than refusing — *safe default* |
+| `SUDO_UID` = `' 1000'`, `+1000`, or beyond 32 bits | accepted; a value beyond 32 bits wraps around (2³² + 1000 is 1000) | ignored: digits only, at most 32 bits | the wrap-around trusts a user nobody named — *safe default* |
+| Administrators group on Windows | trusted for an administrator (Git for Windows commit messages, 2022 and 2025) | the same | 1 — not observed: no Windows git to run but CI's |
+| UNC paths on Windows | must be listed in `safe.directory` since Git for Windows 2.54 (release notes) | owner checked like any path | the release note is not precise enough to follow; not observed |
 | Paths on Windows | some written with `/` (`HOME`), some with `\` | the caller's separators, kept | matching git's spelling serves no one |
 
 ## Editing

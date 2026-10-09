@@ -9,7 +9,7 @@ import (
 
 // Read the effective configuration of a repository, as git would use it.
 func ExampleEnv_Load() {
-	env, err := gitconfig.Discover(".git")
+	env, err := gitconfig.Discover(".")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -22,7 +22,6 @@ func ExampleEnv_Load() {
 		fmt.Println("user:", e.Value)
 	}
 
-	// Missing key: the default. Malformed value ("maybe"): an error, as in git.
 	bare, err := cfg.Bool("core.bare", false)
 	if err != nil {
 		log.Fatal(err)
@@ -33,7 +32,7 @@ func ExampleEnv_Load() {
 // Change a value in the repository's config. Comments and layout are kept,
 // and the file is not touched if the value is already set.
 func ExampleEnv_UpdateScope() {
-	env, err := gitconfig.Discover(".git")
+	env, err := gitconfig.Discover(".")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -44,28 +43,3 @@ func ExampleEnv_UpdateScope() {
 		log.Fatal(err)
 	}
 }
-
-// Check that a repository may be trusted before reading its configuration,
-// as git does. SafeDirectory reads only the system, global and command-line
-// scopes; the ownership check is the caller's.
-func ExampleEnv_SafeDirectory() {
-	env, err := gitconfig.Discover("/srv/shared/proj/.git")
-	if err != nil {
-		log.Fatal(err)
-	}
-	ok, err := env.SafeDirectory("/srv/shared/proj")
-	if err != nil {
-		log.Fatal(err)
-	}
-	if !ok && !ownedByCurrentUser("/srv/shared/proj") {
-		log.Fatal("unsafe repository")
-	}
-
-	cfg, err := env.Load()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("editor:", cfg.Value("core.editor", "vi"))
-}
-
-func ownedByCurrentUser(dir string) bool { return false } // platform specific

@@ -25,9 +25,11 @@ Usage outside `repository/`: `ReadString` ×5, `RemoveAll` ×4, `ReadAll` ×3,
 
 ### Mapping
 
-`env, err := gitconfig.Discover(gitDir)` once per repository (a `.git`
-file of a linked worktree is followed); the `Env` is a plain value and can be
-kept.
+`env, err := gitconfig.Discover(workTree)` once per repository (the
+working tree, or the git directory of a bare repository; a `.git` file of a
+linked worktree is followed); the `Env` is a plain value and can be kept.
+`Discover` refuses a repository git would refuse (`ErrUntrusted`): git-bug
+gets git's `safe.directory` protection without code of its own.
 
 | git-bug | gitconfig |
 |---|---|
@@ -119,5 +121,6 @@ Adoption does not need the full RFC first:
 
 go-git-specific needs to keep in mind: `url.insteadOf`/`pushInsteadOf`
 (go-git#865, #844), `http.<url>.*` matching (go-git#474), `safe.directory`
-(`Env.SafeDirectory`, plus an ownership check go-git must do itself), `core.sharedRepository` permissions on written files
+and the ownership check (done by `Discover`; go-git must pass the working
+tree, and not build the `Env` by hand for a repository it found), `core.sharedRepository` permissions on written files
 (go-git#843, #1572) — set by go-git's own write path.
