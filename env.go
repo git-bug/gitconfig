@@ -1,7 +1,10 @@
 package gitconfig
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Scope is one layer of git's configuration. Values from later scopes take
@@ -115,7 +118,7 @@ type CommandEntry struct {
 // It is the only function of this package that reads the process
 // environment.
 func Discover(gitDir string) (Env, error) {
-	panic("not implemented")
+	return discover(gitDir, osEnviron{})
 }
 
 // Load returns the effective configuration: every scope, in git's order of
@@ -132,7 +135,39 @@ func Discover(gitDir string) (Env, error) {
 // A global file that cannot be read for lack of permission is skipped, as
 // git does; LoadProtected skips such a system file too.
 func (e Env) Load() (*Config, error) {
-	panic("not implemented")
+	l, err := e.newLoader()
+	if err != nil {
+		return nil, err
+	}
+	if e.SystemConfig != "" {
+		if err := l.loadFile(e.SystemConfig, ScopeSystem, false); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range e.GlobalConfig {
+		if err := l.loadFile(path, ScopeGlobal, true); err != nil {
+			return nil, err
+		}
+	}
+	if l.repo != nil {
+		start := len(l.entries)
+		if err := l.loadFile(l.repo.localConfig(), ScopeLocal, false); err != nil {
+			return nil, err
+		}
+		ok, err := worktreeConfigIn(l.entries[start:], l.repo.localConfig())
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			if err := l.loadFile(l.repo.worktreeConfig(), ScopeWorktree, false); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := l.command(); err != nil {
+		return nil, err
+	}
+	return l.config(), nil
 }
 
 // LoadProtected returns the configuration of the protected scopes only, with
@@ -141,7 +176,24 @@ func (e Env) Load() (*Config, error) {
 // safe.directory or safe.bareRepository. The repository's configuration is
 // not read, so this is safe to call before SafeDirectory.
 func (e Env) LoadProtected() (*Config, error) {
-	panic("not implemented")
+	l, err := e.newLoader()
+	if err != nil {
+		return nil, err
+	}
+	if e.SystemConfig != "" {
+		if err := l.loadFile(e.SystemConfig, ScopeSystem, true); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range e.GlobalConfig {
+		if err := l.loadFile(path, ScopeGlobal, true); err != nil {
+			return nil, err
+		}
+	}
+	if err := l.command(); err != nil {
+		return nil, err
+	}
+	return l.config(), nil
 }
 
 // SafeDirectory reports whether dir is allowed by the safe.directory values
@@ -154,7 +206,49 @@ func (e Env) LoadProtected() (*Config, error) {
 // safe.directory, and that check is platform specific and left to the
 // caller. A false result therefore means "not listed", not "unsafe".
 func (e Env) SafeDirectory(dir string) (bool, error) {
-	panic("not implemented")
+	c, err := e.LoadProtected()
+	if err != nil {
+		return false, err
+	}
+	dir = realPath(dir)
+	safe := false
+	for _, entry := range c.GetAll("safe.directory") {
+		switch v := entry.Value; {
+		case v == "":
+			safe = false
+		case v == "*":
+			safe = true
+		case strings.HasSuffix(v, "/*"):
+			prefix, err := Entry{Value: strings.TrimSuffix(v, "*")}.Path(e.Home)
+			if err != nil {
+				continue
+			}
+			if p, err := filepath.EvalSymlinks(prefix); err == nil {
+				if strings.HasPrefix(dir, strings.TrimSuffix(p, string(filepath.Separator))+string(filepath.Separator)) {
+					safe = true
+				}
+			}
+		default:
+			p, err := entry.Path(e.Home)
+			if err != nil || !filepath.IsAbs(p) {
+				// "." and unexpandable values are skipped.
+				continue
+			}
+			if p, err := filepath.EvalSymlinks(p); err == nil && p == dir {
+				safe = true
+			}
+		}
+	}
+	return safe, nil
+}
+
+// realPath returns path with symbolic links resolved, or cleaned if it
+// cannot be resolved.
+func realPath(path string) string {
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		return p
+	}
+	return filepath.Clean(path)
 }
 
 // LoadScope returns the configuration of exactly one scope, with includes
@@ -173,7 +267,37 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 // It fails with ErrNoScope for ScopeFile, and for ScopeLocal and
 // ScopeWorktree where WritePath does.
 func (e Env) LoadScope(s Scope) (*Config, error) {
-	panic("not implemented")
+	l, err := e.newLoader()
+	if err != nil {
+		return nil, err
+	}
+	switch s {
+	case ScopeSystem:
+		if e.SystemConfig != "" {
+			err = l.loadFile(e.SystemConfig, ScopeSystem, false)
+		}
+	case ScopeGlobal:
+		for _, path := range e.GlobalConfig {
+			if err = l.loadFile(path, ScopeGlobal, true); err != nil {
+				break
+			}
+		}
+	case ScopeLocal, ScopeWorktree:
+		var path string
+		var scope Scope
+		path, scope, err = e.scopeFile(s)
+		if err == nil {
+			err = l.loadFile(path, scope, false)
+		}
+	case ScopeCommand:
+		err = l.command()
+	default:
+		return nil, ErrNoScope
+	}
+	if err != nil {
+		return nil, err
+	}
+	return l.config(), nil
 }
 
 // LoadFile returns the configuration of the file at path, with includes
@@ -181,7 +305,14 @@ func (e Env) LoadScope(s Scope) (*Config, error) {
 // includes there only with --includes). Its entries have ScopeFile. A
 // missing file is empty.
 func (e Env) LoadFile(path string) (*Config, error) {
-	panic("not implemented")
+	l, err := e.newLoader()
+	if err != nil {
+		return nil, err
+	}
+	if err := l.loadFile(path, ScopeFile, false); err != nil {
+		return nil, err
+	}
+	return l.config(), nil
 }
 
 // WritePath returns the file that `git config --<scope>` writes to. For
@@ -193,14 +324,73 @@ func (e Env) LoadFile(path string) (*Config, error) {
 // ScopeLocal and ScopeWorktree outside a repository, ScopeWorktree in a
 // repository with several worktrees and no extensions.worktreeConfig.
 func (e Env) WritePath(s Scope) (string, error) {
-	panic("not implemented")
+	switch s {
+	case ScopeSystem:
+		if e.SystemConfig == "" {
+			return "", ErrNoScope
+		}
+		return e.SystemConfig, nil
+	case ScopeGlobal:
+		if len(e.GlobalConfig) == 0 {
+			return "", ErrNoScope
+		}
+		for i := len(e.GlobalConfig) - 1; i >= 0; i-- {
+			if _, err := os.Lstat(e.GlobalConfig[i]); err == nil {
+				return e.GlobalConfig[i], nil
+			}
+		}
+		return e.GlobalConfig[len(e.GlobalConfig)-1], nil
+	case ScopeLocal, ScopeWorktree:
+		path, _, err := e.scopeFile(s)
+		return path, err
+	}
+	return "", ErrNoScope
+}
+
+// scopeFile returns the file of the local or worktree scope, and the scope
+// its entries have: without extensions.worktreeConfig, the worktree scope
+// is the local config, if the repository has a single worktree.
+func (e Env) scopeFile(s Scope) (string, Scope, error) {
+	r, err := e.repo()
+	if err != nil {
+		return "", 0, err
+	}
+	if r == nil {
+		return "", 0, ErrNoScope
+	}
+	if s == ScopeLocal {
+		return r.localConfig(), ScopeLocal, nil
+	}
+	ok, err := r.worktreeConfigEnabled()
+	switch {
+	case err != nil:
+		return "", 0, err
+	case ok:
+		return r.worktreeConfig(), ScopeWorktree, nil
+	case r.severalWorktrees():
+		return "", 0, ErrNoScope
+	}
+	return r.localConfig(), ScopeLocal, nil
 }
 
 // UpdateScope edits the file of scope s, as UpdateFile does; the File's
 // entries have the scope LoadScope gives them. Writes never go into an
 // included file.
 func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
-	panic("not implemented")
+	var path string
+	var scope Scope
+	var err error
+	switch s {
+	case ScopeLocal, ScopeWorktree:
+		path, scope, err = e.scopeFile(s)
+	default:
+		path, err = e.WritePath(s)
+		scope = s
+	}
+	if err != nil {
+		return err
+	}
+	return updateFile(path, scope, fn)
 }
 
 // UpdateFile edits the file at path with git's lock protocol, like
@@ -232,5 +422,5 @@ func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
 // path controls which file is written: do not edit the configuration of a
 // repository you have not checked with SafeDirectory and an ownership check.
 func (e Env) UpdateFile(path string, fn func(*File) error) error {
-	panic("not implemented")
+	return updateFile(path, ScopeFile, fn)
 }

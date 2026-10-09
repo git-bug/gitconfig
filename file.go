@@ -1,5 +1,9 @@
 package gitconfig
 
+import (
+	"bytes"
+)
+
 // File is the lossless, editable form of one configuration file. Edits
 // change only the lines `git config` would change, and produce the same
 // bytes; everything else is kept byte for byte.
@@ -31,7 +35,13 @@ package gitconfig
 // one change. Values are quoted and escaped as git does, and a subsection
 // that cannot be written in a header (newline, NUL) is ErrInvalidKey.
 type File struct {
-	// unexported
+	name  string
+	scope Scope
+	data  []byte
+	parsed
+
+	closed bool    // edits fail with ErrClosed
+	snap   *Config // Config of data, nil until asked for
 }
 
 // Parse parses a configuration file. name is used in errors and in the
@@ -43,13 +53,18 @@ type File struct {
 // data may come from anyone (a .gitmodules blob from a remote): Parse never
 // panics, and its time and memory are linear in len(data).
 func Parse(name string, data []byte) (*File, error) {
-	panic("not implemented")
+	data = bytes.Clone(data)
+	p, err := parse(name, data)
+	if err != nil {
+		return nil, err
+	}
+	return &File{name: name, data: data, parsed: p}, nil
 }
 
 // Bytes returns the content of the file. It is identical to the parsed data
 // if the file was not edited.
 func (f *File) Bytes() []byte {
-	panic("not implemented")
+	return bytes.Clone(f.data)
 }
 
 // Config returns an immutable snapshot of the entries of this file. Include
@@ -61,7 +76,10 @@ func (f *File) Bytes() []byte {
 // The snapshot is kept until the next edit, so calling Config repeatedly,
 // for example to read values inside an Env.UpdateFile callback, is cheap.
 func (f *File) Config() *Config {
-	panic("not implemented")
+	if f.snap == nil {
+		f.snap = newConfig(f.entries(f.scope, f.name, nil))
+	}
+	return f.snap
 }
 
 // Set sets the value of key, like `git config <key> <value>`, adding it if
@@ -72,45 +90,124 @@ func (f *File) Config() *Config {
 // difference with git's edits. An implicit entry ("[a]\n\tk") is never
 // already set, even for value "": it reads as true, and "k = " as false.
 func (f *File) Set(key, value string) error {
-	panic("not implemented")
+	k, section, sub, name, err := f.prepare(key, &value)
+	if err != nil {
+		return err
+	}
+	idx := f.entriesOf(k)
+	switch {
+	case len(idx) > 1:
+		return &KeyError{Key: key, Err: ErrMultipleValues}
+	case len(idx) == 1:
+		if it := f.items[idx[0]]; !it.implicit && f.valueOf(it) == value {
+			return nil
+		}
+		return f.apply(key, []splice{f.replaceEntry(idx[0], name, value)}, checkKey(k, []string{value}, false))
+	}
+	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, false))
 }
 
 // ReplaceAll replaces all values of key with a single value, or adds it if
 // key is absent, like `git config --replace-all <key> <value>`.
 func (f *File) ReplaceAll(key, value string) error {
-	panic("not implemented")
+	k, section, sub, name, err := f.prepare(key, &value)
+	if err != nil {
+		return err
+	}
+	idx := f.entriesOf(k)
+	if len(idx) == 0 {
+		return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, false))
+	}
+	// The values collapse into one, at the place of the last.
+	var splices []splice
+	for _, i := range idx[:len(idx)-1] {
+		splices = append(splices, f.removeEntry(i))
+	}
+	splices = append(splices, f.replaceEntry(idx[len(idx)-1], name, value))
+	return f.apply(key, splices, checkKey(k, []string{value}, false))
 }
 
 // Add adds a value to key, keeping existing ones, like `git config --add`.
 func (f *File) Add(key, value string) error {
-	panic("not implemented")
+	k, section, sub, name, err := f.prepare(key, &value)
+	if err != nil {
+		return err
+	}
+	var want []string
+	for _, i := range f.entriesOf(k) {
+		want = append(want, f.valueOf(f.items[i]))
+	}
+	want = append(want, value)
+	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, func(before, after []flatEntry) bool {
+		// Implicit values are kept: only the new one must not be.
+		got := filter(after, func(e flatEntry) bool { return e.is(k) })
+		return checkKey(k, want, true)(before, after) && !got[len(got)-1].implicit
+	})
 }
 
 // Unset removes the value of key, like `git config --unset <key>`, and
 // reports whether there was one. It fails with ErrMultipleValues if key has
 // several values.
 func (f *File) Unset(key string) (removed bool, err error) {
-	panic("not implemented")
+	k, _, _, _, err := f.prepare(key, nil)
+	if err != nil {
+		return false, err
+	}
+	idx := f.entriesOf(k)
+	switch len(idx) {
+	case 0:
+		return false, nil
+	case 1:
+		err := f.apply(key, f.unsetEntries(idx), checkKey(k, nil, false))
+		return err == nil, err
+	}
+	return false, &KeyError{Key: key, Err: ErrMultipleValues}
 }
 
 // UnsetAll removes all values of key, like `git config --unset-all <key>`,
 // and returns how many were removed.
 func (f *File) UnsetAll(key string) (removed int, err error) {
-	panic("not implemented")
+	k, _, _, _, err := f.prepare(key, nil)
+	if err != nil {
+		return 0, err
+	}
+	idx := f.entriesOf(k)
+	if len(idx) == 0 {
+		return 0, nil
+	}
+	if err := f.apply(key, f.unsetEntries(idx), checkKey(k, nil, false)); err != nil {
+		return 0, err
+	}
+	return len(idx), nil
 }
 
 // RemoveSection removes section [section] and all its entries, like
 // `git config --remove-section <section>`, and reports whether it was
 // present. Its subsections are kept.
 func (f *File) RemoveSection(section string) (removed bool, err error) {
-	panic("not implemented")
+	if err := f.checkOpen(section); err != nil {
+		return false, err
+	}
+	if err := sectionArg(section); err != nil {
+		return false, err
+	}
+	return f.removeSection(section, sectionKey{section: lowerASCII(section)})
 }
 
 // RemoveSubsection removes subsection [section "sub"] and all its entries,
 // like `git config --remove-section <section>.<sub>`, and reports whether
 // it was present. sub "" is the empty subsection [section ""].
 func (f *File) RemoveSubsection(section, sub string) (removed bool, err error) {
-	panic("not implemented")
+	if err := f.checkOpen(section); err != nil {
+		return false, err
+	}
+	if err := sectionArg(section); err != nil {
+		return false, err
+	}
+	if !validSubsection(sub) {
+		return false, &KeyError{Key: sub, Err: ErrInvalidKey}
+	}
+	return f.removeSection(section, sectionKey{lowerASCII(section), sub, true})
 }
 
 // RenameSection renames section [oldName] to [newName], like
@@ -121,7 +218,17 @@ func (f *File) RemoveSubsection(section, sub string) (removed bool, err error) {
 // it does, both sections remain and read as one, as with git. To refuse
 // instead, check f.Config() first, in the same Env.UpdateFile callback.
 func (f *File) RenameSection(oldName, newName string) error {
-	panic("not implemented")
+	if err := f.checkOpen(oldName); err != nil {
+		return err
+	}
+	if err := sectionArg(oldName); err != nil {
+		return err
+	}
+	if err := sectionArg(newName); err != nil {
+		return err
+	}
+	to := sectionKey{section: lowerASCII(newName)}
+	return f.renameSection(oldName, sectionKey{section: lowerASCII(oldName)}, to, formatHeader(newName, "", false))
 }
 
 // RenameSubsection renames subsection [section "oldSub"] to
@@ -131,5 +238,17 @@ func (f *File) RenameSection(oldName, newName string) error {
 // rename` refuses one, and a caller doing the same checks
 // f.Config().Subsections first.
 func (f *File) RenameSubsection(section, oldSub, newSub string) error {
-	panic("not implemented")
+	if err := f.checkOpen(section); err != nil {
+		return err
+	}
+	if err := sectionArg(section); err != nil {
+		return err
+	}
+	for _, sub := range []string{oldSub, newSub} {
+		if !validSubsection(sub) {
+			return &KeyError{Key: sub, Err: ErrInvalidKey}
+		}
+	}
+	sec := lowerASCII(section)
+	return f.renameSection(section, sectionKey{sec, oldSub, true}, sectionKey{sec, newSub, true}, formatHeader(section, newSub, true))
 }

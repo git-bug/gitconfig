@@ -2,6 +2,7 @@ package gitconfig
 
 import (
 	"iter"
+	"slices"
 )
 
 // Config is an immutable, ordered set of entries, from a single file or from
@@ -18,36 +19,106 @@ import (
 // Subsections); methods walking the configuration return an iterator (All,
 // Section, Subsection).
 type Config struct {
-	// unexported
+	entries []Entry
+	index   map[Key][]int // positions in entries, by key
+
+	// subsections lists the distinct subsections of each section, in order
+	// of first appearance.
+	subsections map[string][]string
+}
+
+// newConfig returns a Config of entries, which it keeps.
+func newConfig(entries []Entry) *Config {
+	c := &Config{
+		entries:     entries,
+		index:       make(map[Key][]int),
+		subsections: make(map[string][]string),
+	}
+	seen := make(map[sectionKey]bool)
+	for i, e := range entries {
+		c.index[e.Key] = append(c.index[e.Key], i)
+		if sk := e.Key.sectionKey(); sk.hasSub && !seen[sk] {
+			seen[sk] = true
+			c.subsections[sk.section] = append(c.subsections[sk.section], sk.subsection)
+		}
+	}
+	return c
+}
+
+// lookup returns the positions of the entries of key.
+func (c *Config) lookup(key string) []int {
+	if c == nil {
+		return nil
+	}
+	k, ok := parseKey(key)
+	if !ok {
+		return nil
+	}
+	return c.index[k]
+}
+
+// filter returns the entries of one section or subsection.
+func (c *Config) filter(sk sectionKey) iter.Seq[Entry] {
+	return func(yield func(Entry) bool) {
+		if c == nil {
+			return
+		}
+		for _, e := range c.entries {
+			if e.Key.sectionKey() == sk && !yield(e) {
+				return
+			}
+		}
+	}
 }
 
 // Get returns the last entry for key, as `git config --get` does.
 func (c *Config) Get(key string) (Entry, bool) {
-	panic("not implemented")
+	idx := c.lookup(key)
+	if len(idx) == 0 {
+		return Entry{}, false
+	}
+	return c.entries[idx[len(idx)-1]], true
 }
 
 // GetAll returns every entry for key, in order. The returned slice is owned
 // by the caller.
 func (c *Config) GetAll(key string) []Entry {
-	panic("not implemented")
+	idx := c.lookup(key)
+	if len(idx) == 0 {
+		return nil
+	}
+	out := make([]Entry, len(idx))
+	for i, j := range idx {
+		out[i] = c.entries[j]
+	}
+	return out
 }
 
 // All returns every entry, in order.
 func (c *Config) All() iter.Seq[Entry] {
-	panic("not implemented")
+	return func(yield func(Entry) bool) {
+		if c == nil {
+			return
+		}
+		for _, e := range c.entries {
+			if !yield(e) {
+				return
+			}
+		}
+	}
 }
 
 // Section returns every entry of section [section] itself, in order; entries
 // of its subsections are not included. section is case-insensitive.
 func (c *Config) Section(section string) iter.Seq[Entry] {
-	panic("not implemented")
+	return c.filter(sectionKey{section: lowerASCII(section)})
 }
 
 // Subsection returns every entry of subsection [section "sub"], in order.
 // section is case-insensitive, sub is case-sensitive. sub "" is the empty
 // subsection [section ""], distinct from [section].
 func (c *Config) Subsection(section, sub string) iter.Seq[Entry] {
-	panic("not implemented")
+	return c.filter(sectionKey{lowerASCII(section), sub, true})
 }
 
 // Subsections returns the distinct subsections of section, in order of first
@@ -55,26 +126,48 @@ func (c *Config) Subsection(section, sub string) iter.Seq[Entry] {
 // Entries of [section] itself have no subsection and are not listed; ""
 // stands for [section ""].
 func (c *Config) Subsections(section string) []string {
-	panic("not implemented")
+	if c == nil {
+		return nil
+	}
+	return slices.Clone(c.subsections[lowerASCII(section)])
 }
 
 // Value returns the last value for key, or def if key is absent.
 func (c *Config) Value(key string, def string) string {
-	panic("not implemented")
+	if e, ok := c.Get(key); ok {
+		return e.Value
+	}
+	return def
 }
 
 // Bool returns the last value for key as a boolean, or def if key is absent.
 // A value that is not a valid boolean is a *ValueError; the result is then
 // def. To tell an absent key from one set to def, use Get and Entry.Bool.
 func (c *Config) Bool(key string, def bool) (bool, error) {
-	panic("not implemented")
+	e, ok := c.Get(key)
+	if !ok {
+		return def, nil
+	}
+	b, err := e.Bool()
+	if err != nil {
+		return def, err
+	}
+	return b, nil
 }
 
 // Int returns the last value for key as an integer, or def if key is absent.
 // A value that is not a valid integer is a *ValueError; the result is then
 // def.
 func (c *Config) Int(key string, def int64) (int64, error) {
-	panic("not implemented")
+	e, ok := c.Get(key)
+	if !ok {
+		return def, nil
+	}
+	n, err := e.Int()
+	if err != nil {
+		return def, err
+	}
+	return n, nil
 }
 
 // Path returns the last value for key as a path, as Entry.Path does with
@@ -82,7 +175,21 @@ func (c *Config) Int(key string, def int64) (int64, error) {
 // value or a def that cannot be expanded is a *ValueError (for def, its Entry
 // has the key, Value def and a zero Origin); the result is then def as given.
 func (c *Config) Path(key, home, def string) (string, error) {
-	panic("not implemented")
+	e, ok := c.Get(key)
+	if !ok {
+		k, _ := parseKey(key)
+		e = Entry{Key: k, Value: def}
+	}
+	p, err := e.Path(home)
+	if err != nil {
+		return def, err
+	}
+	return p, nil
+}
+
+// error returns a *ValueError for e read as typ.
+func (e Entry) error(typ string, err error) error {
+	return &ValueError{Entry: e, Type: typ, Err: err}
 }
 
 // Entry is one occurrence of a key in a configuration file. It is plain
@@ -125,14 +232,28 @@ type Origin struct {
 // are true; false, no, off, 0 and "" are false; an implicit value is true.
 // Case is ignored. Anything else is a *ValueError.
 func (e Entry) Bool() (bool, error) {
-	panic("not implemented")
+	if e.Implicit {
+		return true, nil
+	}
+	b, err := parseBool(e.Value)
+	if err != nil {
+		return false, e.error("bool", err)
+	}
+	return b, nil
 }
 
 // Int interprets the value as git does, including the k, m and g suffixes.
 // An invalid unit, an out-of-range value or an implicit value is a
 // *ValueError.
 func (e Entry) Int() (int64, error) {
-	panic("not implemented")
+	if e.Implicit {
+		return 0, e.error("int", nil)
+	}
+	n, err := parseInt(e.Value)
+	if err != nil {
+		return 0, e.error("int", err)
+	}
+	return n, nil
 }
 
 // Path interprets the value as a path, as git does for `--type=path` and for
@@ -142,7 +263,14 @@ func (e Entry) Int() (int64, error) {
 // *ValueError. Config.Path
 // does the same for a key.
 func (e Entry) Path(home string) (string, error) {
-	panic("not implemented")
+	if e.Implicit {
+		return "", e.error("path", nil)
+	}
+	p, err := expandPath(e.Value, home)
+	if err != nil {
+		return "", e.error("path", err)
+	}
+	return p, nil
 }
 
 // Key is the canonical form of a key, as printed by `git config --list`:
