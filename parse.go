@@ -93,14 +93,15 @@ type parser struct {
 	sec       int32 // current section
 	inSection bool
 	secIndex  map[sectionKey]int32
+	headers   map[string]int32  // the section of each header, by its bytes
 	names     map[string]string // key names, interned
-	buf       []byte            // scratch for values
+	buf       []byte            // scratch for values and subsections
 }
 
 // parse splits data into items, or returns the *SyntaxError git would
 // report.
 func parse(name string, data []byte) (parsed, error) {
-	p := &parser{name: name, data: data, line: 1, secIndex: make(map[sectionKey]int32), names: make(map[string]string)}
+	p := &parser{name: name, data: data, line: 1, secIndex: make(map[sectionKey]int32), headers: make(map[string]int32), names: make(map[string]string)}
 	p.items = make([]item, 0, 2*bytes.Count(data, []byte{'\n'})+4)
 	p.secs = []sectionKey{{}}
 	if err := p.run(); err != nil {
@@ -131,16 +132,15 @@ func (p *parser) addEntry(start, end int, name []byte, value string) *item {
 	return it
 }
 
-// setSection makes sec the current section.
-func (p *parser) setSection(sec sectionKey) {
+// section returns the index of sec in p.secs, adding it if absent.
+func (p *parser) section(sec sectionKey) int32 {
 	i, ok := p.secIndex[sec]
 	if !ok {
 		i = int32(len(p.secs))
 		p.secs = append(p.secs, sec)
 		p.secIndex[sec] = i
 	}
-	p.sec = i
-	p.inSection = true
+	return i
 }
 
 // isSpace reports whether data[i] is whitespace between tokens: a space, a
@@ -219,21 +219,18 @@ func (p *parser) header() error {
 	for i < len(d) && (isKeyChar(d[i]) || d[i] == '.') {
 		i++
 	}
-	name := lowerASCII(string(d[start+1 : i]))
+	nameEnd := i
 	if i == len(d) {
 		return p.errorAt(p.line+1, "unterminated section header")
 	}
 
-	var sec sectionKey
+	sub := p.buf[:0]
+	defer func() { p.buf = sub[:0] }()
+	hasSub := false
 	switch {
 	case d[i] == ']':
-		if name == "" {
+		if nameEnd == start+1 {
 			return p.errorAt(p.line, "empty section name")
-		}
-		sec.section = name
-		if dot := strings.IndexByte(name, '.'); dot >= 0 {
-			// Legacy header [a.B]: subsection "b".
-			sec = sectionKey{name[:dot], name[dot+1:], true}
 		}
 		i++
 
@@ -245,7 +242,6 @@ func (p *parser) header() error {
 			return p.errorAt(p.line, "invalid section header")
 		}
 		i++
-		var sub []byte
 		for {
 			if i == len(d) || d[i] == '\n' {
 				return p.errorAt(p.line, "unterminated subsection")
@@ -277,20 +273,41 @@ func (p *parser) header() error {
 			return p.errorAt(p.line, "invalid section header")
 		}
 		i++
-		sec = sectionKey{name, string(sub), true}
-		if dot := strings.IndexByte(name, '.'); dot >= 0 {
-			// [a.b "x"]: git reads the keys as a.b.x.<name>.
-			sec = sectionKey{name[:dot], name[dot+1:] + "." + string(sub), true}
-		}
+		hasSub = true
 
 	default:
 		return p.errorAt(p.line, "invalid section header")
 	}
 
-	p.setSection(sec)
+	// The section is decoded once for each spelling of a header: files
+	// repeat their headers.
+	sec, ok := p.headers[string(d[start:i])]
+	if !ok {
+		sec = p.section(headerKey(lowerASCII(string(d[start+1:nameEnd])), sub, hasSub))
+		p.headers[string(d[start:i])] = sec
+	}
+	p.sec = sec
+	p.inSection = true
 	p.pos = i
 	p.add(itemHeader, start, i)
 	return nil
+}
+
+// headerKey returns the section of a header with the lowered name, and the
+// subsection sub if hasSub.
+func headerKey(name string, sub []byte, hasSub bool) sectionKey {
+	dot := strings.IndexByte(name, '.')
+	switch {
+	case !hasSub && dot < 0:
+		return sectionKey{section: name}
+	case !hasSub:
+		// Legacy header [a.B]: subsection "b".
+		return sectionKey{name[:dot], name[dot+1:], true}
+	case dot < 0:
+		return sectionKey{name, string(sub), true}
+	}
+	// [a.b "x"]: git reads the keys as a.b.x.<name>.
+	return sectionKey{name[:dot], name[dot+1:] + "." + string(sub), true}
 }
 
 func (p *parser) entry() error {

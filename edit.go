@@ -92,23 +92,61 @@ type flatEntry struct {
 	implicit  bool
 }
 
-func flatten(p parsed) []flatEntry {
-	var out []flatEntry
-	for _, it := range p.items {
-		if it.kind == itemEntry {
-			out = append(out, flatEntry{it.inSection, p.secOf(it), p.nameOf(it), p.valueOf(it), it.implicit})
-		}
-	}
-	return out
-}
-
 func (e flatEntry) is(k Key) bool {
 	return e.inSection && e.sec == k.sectionKey() && e.name == k.Name
 }
 
+// flatCursor walks the entries of a parsed file, without copying them out:
+// the checks of an edit compare two whole files.
+type flatCursor struct {
+	p    *parsed
+	i    int
+	keep func(flatEntry) bool
+}
+
+// next returns the next entry keep accepts, or false at the end.
+func (c *flatCursor) next() (flatEntry, bool) {
+	for c.i < len(c.p.items) {
+		it := c.p.items[c.i]
+		c.i++
+		if it.kind != itemEntry {
+			continue
+		}
+		e := flatEntry{it.inSection, c.p.secOf(it), c.p.nameOf(it), c.p.valueOf(it), it.implicit}
+		if c.keep == nil || c.keep(e) {
+			return e, true
+		}
+	}
+	return flatEntry{}, false
+}
+
+// sameEntries reports whether the entries of before that keepBefore accepts,
+// changed by conv, are the entries of after that keepAfter accepts. A nil
+// function keeps every entry, or changes none.
+func sameEntries(before, after *parsed, keepBefore, keepAfter func(flatEntry) bool, conv func(flatEntry) flatEntry) bool {
+	b := flatCursor{p: before, keep: keepBefore}
+	a := flatCursor{p: after, keep: keepAfter}
+	for {
+		eb, okB := b.next()
+		ea, okA := a.next()
+		if okB != okA {
+			return false
+		}
+		if !okB {
+			return true
+		}
+		if conv != nil {
+			eb = conv(eb)
+		}
+		if eb != ea {
+			return false
+		}
+	}
+}
+
 // apply splices the bytes of the file, parses the result, and keeps it if
 // check accepts the entries before and after the edit.
-func (f *File) apply(key string, splices []splice, check func(before, after []flatEntry) bool) error {
+func (f *File) apply(key string, splices []splice, check func(before, after *parsed) bool) error {
 	slices.SortFunc(splices, func(a, b splice) int { return a.start - b.start })
 	data := make([]byte, 0, len(f.data)+64)
 	at := 0
@@ -119,7 +157,7 @@ func (f *File) apply(key string, splices []splice, check func(before, after []fl
 	}
 	data = append(data, f.data[at:]...)
 	p, err := parse(f.name, data)
-	if err != nil || !check(flatten(f.parsed), flatten(p)) {
+	if err != nil || !check(&f.parsed, &p) {
 		return &KeyError{Key: key, Err: errUnsafeEdit}
 	}
 	f.data = data
@@ -129,34 +167,25 @@ func (f *File) apply(key string, splices []splice, check func(before, after []fl
 }
 
 // checkKey returns a check that the entries of other keys are unchanged and
-// that k has the values want after the edit.
-func checkKey(k Key, want []string, implicitAllowed bool) func(before, after []flatEntry) bool {
-	return func(before, after []flatEntry) bool {
+// that k has the values want after the edit. Only the first implicitOK of
+// them may be implicit.
+func checkKey(k Key, want []string, implicitOK int) func(before, after *parsed) bool {
+	return func(before, after *parsed) bool {
 		other := func(e flatEntry) bool { return !e.is(k) }
-		if !slices.Equal(filter(before, other), filter(after, other)) {
+		if !sameEntries(before, after, other, other, nil) {
 			return false
 		}
-		got := filter(after, func(e flatEntry) bool { return e.is(k) })
-		if len(got) != len(want) {
-			return false
-		}
-		for i, e := range got {
-			if e.value != want[i] || e.implicit && !implicitAllowed {
+		got := flatCursor{p: after, keep: func(e flatEntry) bool { return e.is(k) }}
+		for i := 0; ; i++ {
+			e, ok := got.next()
+			if !ok {
+				return i == len(want)
+			}
+			if i == len(want) || e.value != want[i] || e.implicit && i >= implicitOK {
 				return false
 			}
 		}
-		return true
 	}
-}
-
-func filter(entries []flatEntry, keep func(flatEntry) bool) []flatEntry {
-	var out []flatEntry
-	for _, e := range entries {
-		if keep(e) {
-			out = append(out, e)
-		}
-	}
-	return out
 }
 
 // Layout helpers. A token is a header or an entry; the whitespace before a
@@ -489,8 +518,8 @@ func (f *File) removeSection(name string, sk sectionKey) (bool, error) {
 		}
 		splices = append(splices, splice{f.ownStart(h), end, ""})
 	}
-	err := f.apply(name, splices, func(before, after []flatEntry) bool {
-		return slices.Equal(filter(before, func(e flatEntry) bool { return !e.inSection || e.sec != sk }), after)
+	err := f.apply(name, splices, func(before, after *parsed) bool {
+		return sameEntries(before, after, func(e flatEntry) bool { return !e.inSection || e.sec != sk }, nil, nil)
 	})
 	return err == nil, err
 }
@@ -537,12 +566,12 @@ func (f *File) renameSection(name string, sk, to sectionKey, header string) erro
 		splices = append(splices, splice{f.ownStart(h), f.lineEnd(h), text.String()})
 		done = end - 1
 	}
-	return f.apply(name, splices, func(before, after []flatEntry) bool {
-		for i := range before {
-			if before[i].inSection && before[i].sec == sk {
-				before[i].sec = to
+	return f.apply(name, splices, func(before, after *parsed) bool {
+		return sameEntries(before, after, nil, nil, func(e flatEntry) flatEntry {
+			if e.inSection && e.sec == sk {
+				e.sec = to
 			}
-		}
-		return slices.Equal(before, after)
+			return e
+		})
 	})
 }

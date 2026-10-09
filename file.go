@@ -102,9 +102,9 @@ func (f *File) Set(key, value string) error {
 		if it := f.items[idx[0]]; !it.implicit && f.valueOf(it) == value {
 			return nil
 		}
-		return f.apply(key, []splice{f.replaceEntry(idx[0], name, value)}, checkKey(k, []string{value}, false))
+		return f.apply(key, []splice{f.replaceEntry(idx[0], name, value)}, checkKey(k, []string{value}, 0))
 	}
-	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, false))
+	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, 0))
 }
 
 // ReplaceAll replaces all values of key with a single value, or adds it if
@@ -116,7 +116,7 @@ func (f *File) ReplaceAll(key, value string) error {
 	}
 	idx := f.entriesOf(k)
 	if len(idx) == 0 {
-		return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, false))
+		return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, 0))
 	}
 	// The values collapse into one, at the place of the last.
 	var splices []splice
@@ -124,7 +124,7 @@ func (f *File) ReplaceAll(key, value string) error {
 		splices = append(splices, f.removeEntry(i))
 	}
 	splices = append(splices, f.replaceEntry(idx[len(idx)-1], name, value))
-	return f.apply(key, splices, checkKey(k, []string{value}, false))
+	return f.apply(key, splices, checkKey(k, []string{value}, 0))
 }
 
 // Add adds a value to key, keeping existing ones, like `git config --add`.
@@ -138,11 +138,8 @@ func (f *File) Add(key, value string) error {
 		want = append(want, f.valueOf(f.items[i]))
 	}
 	want = append(want, value)
-	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, func(before, after []flatEntry) bool {
-		// Implicit values are kept: only the new one must not be.
-		got := filter(after, func(e flatEntry) bool { return e.is(k) })
-		return checkKey(k, want, true)(before, after) && !got[len(got)-1].implicit
-	})
+	// Implicit values are kept: only the new one must not be.
+	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, want, len(want)-1))
 }
 
 // Unset removes the value of key, like `git config --unset <key>`, and
@@ -158,7 +155,7 @@ func (f *File) Unset(key string) (removed bool, err error) {
 	case 0:
 		return false, nil
 	case 1:
-		err := f.apply(key, f.unsetEntries(idx), checkKey(k, nil, false))
+		err := f.apply(key, f.unsetEntries(idx), checkKey(k, nil, 0))
 		return err == nil, err
 	}
 	return false, &KeyError{Key: key, Err: ErrMultipleValues}
@@ -175,7 +172,7 @@ func (f *File) UnsetAll(key string) (removed int, err error) {
 	if len(idx) == 0 {
 		return 0, nil
 	}
-	if err := f.apply(key, f.unsetEntries(idx), checkKey(k, nil, false)); err != nil {
+	if err := f.apply(key, f.unsetEntries(idx), checkKey(k, nil, 0)); err != nil {
 		return 0, err
 	}
 	return len(idx), nil

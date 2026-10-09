@@ -1,0 +1,69 @@
+diff --git a/env_test.go b/env_test.go
+index c4f3ce1..780217e 100644
+--- a/env_test.go
++++ b/env_test.go
+@@ -1697,6 +1697,16 @@ func BenchmarkEnv(b *testing.B) {
+ 			_, _ = env.LoadProtected()
+ 		}
+ 	})
++	b.Run("LoadFileManyGitdirConditions", func(b *testing.B) {
++		// The git directory's real path is resolved once per load, not
++		// once per condition.
++		path := filepath.Join(tempDir(b), "config")
++		writeFile(b, path, strings.Repeat("[includeIf \"gitdir:/nope/\"]\n\tpath = x\n", 1000))
++		b.ReportAllocs()
++		for b.Loop() {
++			_, _ = env.LoadFile(path)
++		}
++	})
+ 	b.Run("UpdateFile", func(b *testing.B) {
+ 		path := filepath.Join(env.GitDir, "config")
+ 		i := 0
+diff --git a/file_test.go b/file_test.go
+index 1415a54..cb6a960 100644
+--- a/file_test.go
++++ b/file_test.go
+@@ -1063,6 +1063,43 @@ func BenchmarkParse(b *testing.B) {
+ 	}
+ }
+ 
++// BenchmarkEdit measures edits that touch many lines at once, on inputs
++// built to hit their slow paths; each iteration parses the file first.
++// Throughput (MB/s) must not fall as the size grows: these edits are linear.
++func BenchmarkEdit(b *testing.B) {
++	edits := []struct {
++		name string
++		gen  func(n int) []byte
++		edit func(f *gitconfig.File) error
++	}{
++		{"UnsetAll one section", func(n int) []byte { return sized("[a]\n", "\tk = v\n", n) }, func(f *gitconfig.File) error {
++			_, err := f.UnsetAll("a.k")
++			return err
++		}},
++		{"UnsetAll section per value", func(n int) []byte { return sized("", "[a]\n\tk = v\n", n) }, func(f *gitconfig.File) error {
++			_, err := f.UnsetAll("a.k")
++			return err
++		}},
++		{"RenameSection one line", func(n int) []byte { return append(sized("", "[a]", n), " k = v\n"...) }, func(f *gitconfig.File) error {
++			return f.RenameSection("a", "b")
++		}},
++	}
++	for _, e := range edits {
++		for _, n := range []int{1 << 10, 1 << 16, 1 << 20} {
++			data := e.gen(n)
++			b.Run(fmt.Sprintf("%s/%dKiB", e.name, n>>10), func(b *testing.B) {
++				b.SetBytes(int64(len(data)))
++				b.ReportAllocs()
++				for b.Loop() {
++					f, err := gitconfig.Parse("f", data)
++					require.NoError(b, err)
++					require.NoError(b, e.edit(f))
++				}
++			})
++		}
++	}
++}
++
+ func BenchmarkFile(b *testing.B) {
+ 	for _, n := range []int{10, 1000} {
+ 		data := []byte(bigConfig(n))

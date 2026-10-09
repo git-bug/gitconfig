@@ -1,0 +1,41 @@
+goos: linux
+goarch: amd64
+pkg: github.com/git-bug/gitconfig
+cpu: AMD Ryzen 5 3600 6-Core Processor              
+
+BenchmarkParse/realistic/1KiB-12 98496 12082 ns/op 94.77 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 101469 12106 ns/op 94.58 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 99706 12085 ns/op 94.74 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 101668 12170 ns/op 94.08 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 104539 12012 ns/op 95.32 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 98101 12146 ns/op 94.27 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 100449 12077 ns/op 94.8 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 99398 12106 ns/op 94.58 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 98299 12120 ns/op 94.47 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/1KiB-12 99037 12132 ns/op 94.38 MB/s 23800 B/op 85 allocs/op
+BenchmarkParse/realistic/64KiB-12 2174 810528 ns/op 81.09 MB/s 1.396506e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1722 816902 ns/op 80.45 MB/s 1.396503e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1850 643690 ns/op 102.1 MB/s 1.396499e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1858 633611 ns/op 103.73 MB/s 1.396502e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1756 630631 ns/op 104.22 MB/s 1.396499e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1914 636040 ns/op 103.33 MB/s 1.396498e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1900 634445 ns/op 103.59 MB/s 1.396498e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1982 620801 ns/op 105.87 MB/s 1.396498e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1916 765270 ns/op 85.88 MB/s 1.396502e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/64KiB-12 1982 599231 ns/op 109.68 MB/s 1.396495e+06 B/op 2066 allocs/op
+BenchmarkParse/realistic/1024KiB-12 128 9.216998e+06 ns/op 113.77 MB/s 2.3731898e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 100 1.103815e+07 ns/op 95 MB/s 2.3731982e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 120 9.878692e+06 ns/op 106.15 MB/s 2.3731896e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 123 9.716865e+06 ns/op 107.91 MB/s 2.3731901e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 123 9.780195e+06 ns/op 107.22 MB/s 2.3731902e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 91 1.1581071e+07 ns/op 90.54 MB/s 2.3731925e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 100 1.0990645e+07 ns/op 95.41 MB/s 2.3731923e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 121 9.874891e+06 ns/op 106.19 MB/s 2.37319e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 128 9.467725e+06 ns/op 110.75 MB/s 2.3731905e+07 B/op 32121 allocs/op
+BenchmarkParse/realistic/1024KiB-12 98 1.1610986e+07 ns/op 90.31 MB/s 2.3731923e+07 B/op 32121 allocs/op
+BenchmarkParse/one_long_value/1KiB-12 168272 7172 ns/op 142.93 MB/s 7184 B/op 23 allocs/op
+BenchmarkParse/one_long_value/1KiB-12 184128 5902 ns/op 173.67 MB/s 7184 B/op 23 allocs/op
+BenchmarkParse/one_long_value/1KiB-12 212677 5542 ns/op 184.95 MB/s 7184 B/op 23 allocs/op
+BenchmarkParse/one_long_value/1KiB-12 214167 5601 ns/op 183 MB/s 7184 B/op 23 allocs/op
+BenchmarkParse/one_long_value/1KiB-12 214615 5571 ns/op 183.98 MB/s 7184 B/op 23 allocs/op
+BenchmarkParse/one_long_value/1KiB-12 211438 5613 ns/op 182.61 MB/s 7184 B/op 23 allocs/op

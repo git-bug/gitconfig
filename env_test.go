@@ -1697,6 +1697,16 @@ func BenchmarkEnv(b *testing.B) {
 			_, _ = env.LoadProtected()
 		}
 	})
+	b.Run("LoadFileManyGitdirConditions", func(b *testing.B) {
+		// The git directory's real path is resolved once per load, not
+		// once per condition.
+		path := filepath.Join(tempDir(b), "config")
+		writeFile(b, path, strings.Repeat("[includeIf \"gitdir:/nope/\"]\n\tpath = x\n", 1000))
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = env.LoadFile(path)
+		}
+	})
 	b.Run("UpdateFile", func(b *testing.B) {
 		path := filepath.Join(env.GitDir, "config")
 		i := 0
