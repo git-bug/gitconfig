@@ -112,8 +112,9 @@ type CommandEntry struct {
 // Without a home directory, Home is "" and the global files are those git
 // reads then: the XDG file if XDG_CONFIG_HOME is set, no ~/.gitconfig.
 //
-// It fails if a gitdir file is malformed, or if GIT_CONFIG_COUNT or
-// GIT_CONFIG_PARAMETERS is malformed, as git does.
+// It fails if a gitdir file is malformed (a *FileError), or if
+// GIT_CONFIG_NOSYSTEM, GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS is
+// malformed (an *EnvError), as git does.
 //
 // It is the only function of this package that reads the process
 // environment.

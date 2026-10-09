@@ -1083,23 +1083,25 @@ func TestDiscover(t *testing.T) {
 		}
 	})
 
-	t.Run("malformed command line", func(t *testing.T) {
+	t.Run("malformed environment", func(t *testing.T) {
 		for _, tc := range []struct {
-			name string
-			vars map[string]string
+			name   string
+			vars   map[string]string
+			envVar string // EnvError.Var
 		}{
-			{"bogus count", map[string]string{"GIT_CONFIG_COUNT": "x"}},
-			{"negative count", map[string]string{"GIT_CONFIG_COUNT": "-1"}},
-			{"sign only", map[string]string{"GIT_CONFIG_COUNT": "+"}},
-			{"space only", map[string]string{"GIT_CONFIG_COUNT": " "}},
+			{"bogus count", map[string]string{"GIT_CONFIG_COUNT": "x"}, "GIT_CONFIG_COUNT"},
+			{"negative count", map[string]string{"GIT_CONFIG_COUNT": "-1"}, "GIT_CONFIG_COUNT"},
+			{"sign only", map[string]string{"GIT_CONFIG_COUNT": "+"}, "GIT_CONFIG_COUNT"},
+			{"space only", map[string]string{"GIT_CONFIG_COUNT": " "}, "GIT_CONFIG_COUNT"},
 			// Accepted by git.
-			{"plus sign", map[string]string{"GIT_CONFIG_COUNT": "+1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}},
-			{"leading space", map[string]string{"GIT_CONFIG_COUNT": " 1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}},
-			{"negative zero", map[string]string{"GIT_CONFIG_COUNT": "-0"}},
-			{"too many", map[string]string{"GIT_CONFIG_COUNT": "2147483648"}},
-			{"missing key", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_VALUE_0": "v"}},
-			{"missing value", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "a.k"}},
-			{"bad parameters", map[string]string{"GIT_CONFIG_PARAMETERS": "'a.k"}},
+			{"plus sign", map[string]string{"GIT_CONFIG_COUNT": "+1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}, "GIT_CONFIG_COUNT"},
+			{"leading space", map[string]string{"GIT_CONFIG_COUNT": " 1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}, "GIT_CONFIG_COUNT"},
+			{"negative zero", map[string]string{"GIT_CONFIG_COUNT": "-0"}, "GIT_CONFIG_COUNT"},
+			{"too many", map[string]string{"GIT_CONFIG_COUNT": "2147483648"}, "GIT_CONFIG_COUNT"},
+			{"missing key", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_VALUE_0": "v"}, "GIT_CONFIG_KEY_0"},
+			{"missing value", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "a.k"}, "GIT_CONFIG_VALUE_0"},
+			{"bad parameters", map[string]string{"GIT_CONFIG_PARAMETERS": "'a.k"}, "GIT_CONFIG_PARAMETERS"},
+			{"bad nosystem", map[string]string{"GIT_CONFIG_NOSYSTEM": "maybe"}, "GIT_CONFIG_NOSYSTEM"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				cleanGitEnv(t)
@@ -1107,7 +1109,9 @@ func TestDiscover(t *testing.T) {
 					t.Setenv(k, v)
 				}
 				_, err := gitconfig.Discover("")
-				require.Error(t, err)
+				envErr, ok := errors.AsType[*gitconfig.EnvError](err)
+				require.True(t, ok, "got %v", err)
+				assert.Equal(t, tc.envVar, envErr.Var)
 			})
 		}
 	})

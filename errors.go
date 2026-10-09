@@ -17,6 +17,8 @@ import (
 //     writing), a *KeyError for an invalid CommandEntry key, and ErrNoScope
 //     unwrapped, as no file is concerned. The error returned by the
 //     callback of Env.UpdateFile or Env.UpdateScope is returned as is.
+//   - Discover also returns an *EnvError for an environment variable it
+//     cannot interpret.
 var (
 	// ErrNotFound is returned when the section or subsection to rename is
 	// absent. Removing something absent is not an error.
@@ -95,6 +97,23 @@ func (e *FileError) Error() string {
 }
 
 func (e *FileError) Unwrap() error {
+	return e.Err
+}
+
+// EnvError reports an environment variable Discover cannot interpret, as
+// git refuses it: a malformed GIT_CONFIG_NOSYSTEM, GIT_CONFIG_COUNT or
+// GIT_CONFIG_PARAMETERS, or a missing GIT_CONFIG_KEY_<n> or
+// GIT_CONFIG_VALUE_<n>.
+type EnvError struct {
+	Var string // the variable's name, e.g. "GIT_CONFIG_COUNT"
+	Err error  // the reason
+}
+
+func (e *EnvError) Error() string {
+	return fmt.Sprintf("gitconfig: %s: %v", e.Var, e.Err)
+}
+
+func (e *EnvError) Unwrap() error {
 	return e.Err
 }
 

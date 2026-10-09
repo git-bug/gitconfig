@@ -51,7 +51,7 @@ func discover(gitDir string, env environ) (Env, error) {
 	if v, ok := env.Lookup("GIT_CONFIG_NOSYSTEM"); ok {
 		b, err := parseBool(v)
 		if err != nil {
-			return Env{}, fmt.Errorf("gitconfig: bad boolean environment value %q for GIT_CONFIG_NOSYSTEM", v)
+			return Env{}, &EnvError{Var: "GIT_CONFIG_NOSYSTEM", Err: fmt.Errorf("bad boolean value %q", v)}
 		}
 		noSystem = b
 	}
@@ -69,7 +69,7 @@ func discover(gitDir string, env environ) (Env, error) {
 	}
 	params, err := parseParameters(get(env, "GIT_CONFIG_PARAMETERS"))
 	if err != nil {
-		return Env{}, err
+		return Env{}, &EnvError{Var: "GIT_CONFIG_PARAMETERS", Err: err}
 	}
 	e.Command = append(cmd, params...)
 
@@ -118,24 +118,28 @@ func countEntries(env environ) ([]CommandEntry, error) {
 	}
 	n, err := strconv.ParseInt(count, 10, 32)
 	if err != nil || count[0] < '0' || count[0] > '9' {
-		return nil, fmt.Errorf("gitconfig: bogus count in GIT_CONFIG_COUNT: %q", count)
+		return nil, &EnvError{Var: "GIT_CONFIG_COUNT", Err: fmt.Errorf("bogus count %q", count)}
 	}
 	var entries []CommandEntry
 	for i := range int(n) {
-		key, ok := env.Lookup("GIT_CONFIG_KEY_" + strconv.Itoa(i))
+		keyVar, valueVar := "GIT_CONFIG_KEY_"+strconv.Itoa(i), "GIT_CONFIG_VALUE_"+strconv.Itoa(i)
+		key, ok := env.Lookup(keyVar)
 		if !ok {
-			return nil, fmt.Errorf("gitconfig: missing config key GIT_CONFIG_KEY_%d", i)
+			return nil, &EnvError{Var: keyVar, Err: errMissingVar}
 		}
-		value, ok := env.Lookup("GIT_CONFIG_VALUE_" + strconv.Itoa(i))
+		value, ok := env.Lookup(valueVar)
 		if !ok {
-			return nil, fmt.Errorf("gitconfig: missing config value GIT_CONFIG_VALUE_%d", i)
+			return nil, &EnvError{Var: valueVar, Err: errMissingVar}
 		}
 		entries = append(entries, CommandEntry{Key: key, Value: value})
 	}
 	return entries, nil
 }
 
-var errBogusParameters = errors.New("gitconfig: bogus format in GIT_CONFIG_PARAMETERS")
+var (
+	errMissingVar      = errors.New("missing")
+	errBogusParameters = errors.New("bogus format")
+)
 
 // parseParameters parses GIT_CONFIG_PARAMETERS, where git passes its -c
 // options to the commands it runs: items separated by whitespace, each a
