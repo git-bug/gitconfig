@@ -827,85 +827,129 @@ func TestEnvLoadProtected(t *testing.T) {
 	})
 }
 
-func TestEnvSafeDirectory(t *testing.T) {
-	// The directories exist: SafeDirectory skips a listed path it cannot
-	// resolve, and /srv only exists on some systems. Values are written
-	// with '/', as a backslash is an escape in a configuration file.
-	root := tempDir(t)
-	for _, d := range []string{"a/b", "ab"} {
-		require.NoError(t, os.MkdirAll(filepath.Join(root, d), 0o755))
+// otherUID owns the paths a trustCase gives to someone else.
+const otherUID = 1001
+
+// requireRoot skips the test unless it can give files to another user.
+func requireRoot(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" || os.Geteuid() != 0 {
+		t.Skip("needs root, to give files to another user")
 	}
-	s := filepath.ToSlash(root)
-	a := filepath.Join(root, "a")
+}
 
-	for _, tc := range []struct {
-		name   string
-		global string
-		local  string
-		cmd    []gitconfig.CommandEntry
-		dir    string
-		want   bool
-	}{
-		{"not listed", "", "", nil, a, false},
-		{"listed", "[safe]\n\tdirectory = " + s + "/a\n", "", nil, a, true},
-		{"other directory listed", "[safe]\n\tdirectory = " + s + "/a\n", "", nil, filepath.Join(root, "a", "b"), false},
-		{"no prefix match", "[safe]\n\tdirectory = " + s + "/a\n", "", nil, filepath.Join(root, "ab"), false},
-		{"star", "[safe]\n\tdirectory = *\n", "", nil, a, true},
-		{"trailing star", "[safe]\n\tdirectory = " + s + "/*\n", "", nil, filepath.Join(root, "a", "b"), true},
-		{"trailing star, the directory itself", "[safe]\n\tdirectory = " + s + "/*\n", "", nil, root, false},
-		{"empty value resets", "[safe]\n\tdirectory = *\n\tdirectory =\n", "", nil, a, false},
-		{"listed after a reset", "[safe]\n\tdirectory =\n\tdirectory = " + s + "/a\n", "", nil, a, true},
-		{"repository config ignored", "", "[safe]\n\tdirectory = *\n", nil, a, false},
-		{"command line", "", "", []gitconfig.CommandEntry{{Key: "safe.directory", Value: s + "/a"}}, a, true},
-		{"command line resets the global list", "[safe]\n\tdirectory = *\n", "", []gitconfig.CommandEntry{{Key: "safe.directory", Value: ""}}, a, false},
-	} {
+// trustCase is a case of the ownership check, as recorded in
+// docs/GIT-BEHAVIOUR.md, on the repositories trustLayout builds. Paths are
+// relative to its root.
+type trustCase struct {
+	name    string
+	start   string   // the directory given to Discover, or to git -C
+	other   []string // paths owned by otherUID
+	safe    string   // safe.directory in the global file, "" for none
+	cond    string   // the includeIf condition safe is under, "" for none
+	sudoUID string   // SUDO_UID, "" for unset
+	refused string   // the path to list, "" if trusted
+}
+
+// trustLayout builds a working tree w with a linked worktree lw, a working
+// tree g whose .git file points to gd/x.git, and bare repositories b.git
+// and p/.git. w lists every directory in its own safe.directory, which git
+// ignores.
+func trustLayout(t *testing.T, root string) {
+	for _, d := range []string{"w/.git", "gd/x.git", "b.git", "p/.git"} {
+		initRepo(t, filepath.Join(root, d), "[safe]\n\tdirectory = *\n")
+		for _, sub := range []string{"objects", "refs"} {
+			require.NoError(t, os.MkdirAll(filepath.Join(root, d, sub), 0o755))
+		}
+	}
+	writeFile(t, filepath.Join(root, "g", ".git"), "gitdir: "+filepath.Join(root, "gd", "x.git")+"\n")
+	wt := addWorktree(t, filepath.Join(root, "w", ".git"), "lw", "other")
+	writeFile(t, filepath.Join(root, "lw", ".git"), "gitdir: "+wt+"\n")
+}
+
+var trustCases = []trustCase{
+	{name: "all owned", start: "w"},
+	{name: "all owned, started in .git", start: "w/.git"},
+	{name: "gitdir file, all owned", start: "g"},
+	{name: "bare, all owned", start: "b.git"},
+	{name: "bare named .git, all owned", start: "p/.git"},
+	{name: "linked worktree, all owned", start: "lw"},
+	{name: "working tree owned by another", start: "w", other: []string{"w"}, refused: "w"},
+	{name: ".git owned by another", start: "w", other: []string{"w/.git"}, refused: "w"},
+	{name: "config owned by another", start: "w", other: []string{"w/.git/config"}},
+	{name: "parent owned by another", start: "w", other: []string{"."}},
+	{name: "working tree listed", start: "w", other: []string{"w/.git"}, safe: "w"},
+	{name: ".git listed instead of the working tree", start: "w", other: []string{"w/.git"}, safe: "w/.git", refused: "w"},
+	{name: "every directory listed", start: "w", other: []string{"w"}, safe: "*"},
+	{name: "started in .git, working tree owned by another", start: "w/.git", other: []string{"w"}},
+	{name: "started in .git, .git owned by another", start: "w/.git", other: []string{"w/.git"}, refused: "w/.git"},
+	{name: "started in .git, working tree listed", start: "w/.git", other: []string{"w/.git"}, safe: "w", refused: "w/.git"},
+	{name: "started in .git, .git listed", start: "w/.git", other: []string{"w/.git"}, safe: "w/.git"},
+	{name: "gitdir file, git directory owned by another", start: "g", other: []string{"gd/x.git"}, refused: "g"},
+	{name: "gitdir file, git directory listed", start: "g", other: []string{"gd/x.git"}, safe: "gd/x.git", refused: "g"},
+	{name: "gitdir file, working tree listed", start: "g", other: []string{"gd/x.git"}, safe: "g"},
+	{name: "gitdir file owned by another", start: "g", other: []string{"g/.git"}, refused: "g"},
+	{name: "bare, owned by another", start: "b.git", other: []string{"b.git"}, refused: "b.git"},
+	{name: "bare, listed", start: "b.git", other: []string{"b.git"}, safe: "b.git"},
+	{name: "bare, config owned by another", start: "b.git", other: []string{"b.git/config"}},
+	{name: "bare named .git, parent owned by another", start: "p/.git", other: []string{"p"}},
+	{name: "bare named .git, owned by another, parent listed", start: "p/.git", other: []string{"p/.git"}, safe: "p", refused: "p/.git"},
+	{name: "linked worktree, its git directory owned by another", start: "lw", other: []string{"w/.git/worktrees/lw"}, refused: "lw"},
+	{name: "linked worktree, main .git owned by another", start: "lw", other: []string{"w/.git"}},
+	{name: "linked worktree, main working tree owned by another", start: "lw", other: []string{"w"}},
+	{name: "SUDO_UID owns it", start: "w", other: []string{"w", "w/.git"}, sudoUID: strconv.Itoa(otherUID)},
+	{name: "SUDO_UID, root owns it", start: "w", sudoUID: strconv.Itoa(otherUID)},
+	{name: "SUDO_UID not a number", start: "w", other: []string{"w"}, sudoUID: "abc", refused: "w"},
+	{name: "listed under onbranch:", start: "w", other: []string{"w"}, safe: "*", cond: "onbranch:main", refused: "w"},
+	{name: "listed under gitdir:", start: "w", other: []string{"w"}, safe: "*", cond: "gitdir:w/", refused: "w"},
+}
+
+// prepare builds trustLayout in a clean environment, gives the paths of
+// tc.other to otherUID and writes the global file, and returns the root.
+// Under tc.cond, safe is in a file the global file includes.
+func (tc trustCase) prepare(t *testing.T) string {
+	t.Helper()
+	home := cleanGitEnv(t)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	root := tempDir(t)
+	trustLayout(t, root)
+	for _, p := range tc.other {
+		require.NoError(t, os.Chown(filepath.Join(root, p), otherUID, otherUID))
+	}
+	if tc.safe != "" {
+		v := tc.safe
+		if v != "*" {
+			v = filepath.ToSlash(filepath.Join(root, v))
+		}
+		safe := "[safe]\n\tdirectory = " + v + "\n"
+		if tc.cond != "" {
+			writeFile(t, filepath.Join(home, "safe.inc"), safe)
+			safe = "[includeIf \"" + tc.cond + "\"]\n\tpath = safe.inc\n"
+		}
+		writeFile(t, filepath.Join(home, ".gitconfig"), safe)
+	}
+	if tc.sudoUID != "" {
+		t.Setenv("SUDO_UID", tc.sudoUID)
+	}
+	return root
+}
+
+func TestDiscoverTrust(t *testing.T) {
+	requireRoot(t)
+	for _, tc := range trustCases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := tempDir(t)
-			gitDir := filepath.Join(dir, ".git")
-			initRepo(t, gitDir, tc.local)
-			global := filepath.Join(dir, "global")
-			writeFile(t, global, tc.global)
-
-			got, err := gitconfig.Env{GitDir: gitDir, GlobalConfig: []string{global}, Command: tc.cmd}.SafeDirectory(tc.dir)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
+			root := tc.prepare(t)
+			_, err := gitconfig.Discover(filepath.Join(root, tc.start))
+			if tc.refused == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, gitconfig.ErrUntrusted)
+			fe, ok := errors.AsType[*gitconfig.FileError](err)
+			require.True(t, ok, "got %T", err)
+			assert.Equal(t, filepath.Join(root, tc.refused), fe.Path)
 		})
 	}
-
-	t.Run("relative directory", func(t *testing.T) {
-		// Checked against git 2.56: "../*" trusts nothing, as "../repo"
-		// does not. A relative dir is taken from the working directory.
-		t.Chdir(a)
-		for _, tc := range []struct {
-			entry string
-			dir   string
-			want  bool
-		}{
-			{s + "/a", ".", true},
-			{s + "/a/b", "b", true},
-			{s + "/ab", "../ab", true},
-			{s + "/*", "../ab", true},
-			{"../*", "../ab", false},
-			{"../ab", "../ab", false},
-		} {
-			t.Run(tc.entry+" "+tc.dir, func(t *testing.T) {
-				global := filepath.Join(tempDir(t), "global")
-				writeFile(t, global, "[safe]\n\tdirectory = "+tc.entry+"\n")
-				got, err := gitconfig.Env{GlobalConfig: []string{global}}.SafeDirectory(tc.dir)
-				require.NoError(t, err)
-				assert.Equal(t, tc.want, got)
-			})
-		}
-	})
-
-	t.Run("listed through an include", func(t *testing.T) {
-		dir := tempDir(t)
-		writeFile(t, filepath.Join(dir, "global"), "[include]\n\tpath = inc\n")
-		writeFile(t, filepath.Join(dir, "inc"), "[safe]\n\tdirectory = "+s+"/a\n")
-		got, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "global")}}.SafeDirectory(a)
-		require.NoError(t, err)
-		assert.True(t, got)
-	})
 }
 
 func TestEnvWritePath(t *testing.T) {
@@ -975,6 +1019,7 @@ func cleanGitEnv(t *testing.T) string {
 		}
 	}
 	unsetenv(t, "XDG_CONFIG_HOME")
+	unsetenv(t, "SUDO_UID")
 	home := tempDir(t)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -1157,6 +1202,23 @@ func TestDiscover(t *testing.T) {
 		env, err := gitconfig.Discover(filepath.Join(home, "proj", ".git"))
 		require.NoError(t, err)
 		assert.Equal(t, gitDir, env.GitDir)
+	})
+
+	t.Run("working tree", func(t *testing.T) {
+		home := cleanGitEnv(t)
+		gitDir := filepath.Join(home, "repo", ".git")
+		initRepo(t, gitDir, "")
+		env, err := gitconfig.Discover(filepath.Join(home, "repo"))
+		require.NoError(t, err)
+		assert.Equal(t, gitDir, env.GitDir)
+	})
+
+	t.Run("missing directory", func(t *testing.T) {
+		// Nothing to check, nothing to load.
+		home := cleanGitEnv(t)
+		env, err := gitconfig.Discover(filepath.Join(home, "missing"))
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(home, "missing"), env.GitDir)
 	})
 
 	t.Run("malformed gitdir file", func(t *testing.T) {
