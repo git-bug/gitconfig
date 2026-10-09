@@ -311,10 +311,6 @@ func (f *File) entryLineEnd(i int) int {
 // after the previous header or a BOM (the rest of its line becomes a
 // newline), and ends at the next header, its indentation included.
 func (f *File) unsetEntries(idx []int) []splice {
-	removed := make(map[int]bool, len(idx))
-	for _, i := range idx {
-		removed[i] = true
-	}
 	// Comments at the end of a removed entry's line play no part.
 	trailing := make(map[int]bool)
 	for _, i := range idx {
@@ -324,10 +320,21 @@ func (f *File) unsetEntries(idx []int) []splice {
 			}
 		}
 	}
+	// comments[j] counts the comments of items[:j] that play a part.
+	comments := make([]int, len(f.items)+1)
+	for j, it := range f.items {
+		comments[j+1] = comments[j]
+		if it.kind == itemComment && !trailing[j] {
+			comments[j+1]++
+		}
+	}
 
-	var splices []splice
-	for _, i := range idx {
-		splices = append(splices, f.unsetEntry(i, removed, trailing))
+	// From the last entry back, so that a forward scan reaching a removed
+	// entry can stop where that entry's own scan did.
+	forward := make(map[int]int, len(idx))
+	splices := make([]splice, len(idx))
+	for n := len(idx) - 1; n >= 0; n-- {
+		splices[n] = f.unsetEntry(idx[n], forward, comments)
 	}
 
 	// Merge the regions that overlap: a region may hold other entries.
@@ -343,7 +350,11 @@ func (f *File) unsetEntries(idx []int) []splice {
 	return merged
 }
 
-func (f *File) unsetEntry(i int, removed, trailing map[int]bool) splice {
+// unsetEntry returns the splice that removes the entry at i. forward holds
+// where the forward scan of each removed entry after i stopped; the scan of
+// i is added to it. comments counts the comments that play a part, as
+// unsetEntries computes it.
+func (f *File) unsetEntry(i int, forward map[int]int, comments []int) splice {
 	sec := f.items[i].sec
 	sameHeader := func(it item) bool { return it.kind == itemHeader && f.secOf(it) == f.secs[sec] }
 
@@ -360,11 +371,17 @@ func (f *File) unsetEntry(i int, removed, trailing map[int]bool) splice {
 	}
 	fw := i + 1
 	for ; fw < len(f.items); fw++ {
+		if end, ok := forward[fw]; ok {
+			// A removed entry: the scan goes on as its own did.
+			fw = end
+			break
+		}
 		it := f.items[fw]
-		if it.kind == itemEntry && !removed[fw] || it.kind == itemHeader && !sameHeader(it) {
+		if it.kind == itemEntry || it.kind == itemHeader && !sameHeader(it) {
 			break
 		}
 	}
+	forward[i] = fw
 	if !headers || fw < len(f.items) && f.items[fw].kind == itemEntry {
 		return f.removeEntry(i)
 	}
@@ -385,10 +402,10 @@ func (f *File) unsetEntry(i int, removed, trailing map[int]bool) splice {
 	if fw < len(f.items) {
 		end = f.items[fw].start
 	}
-	for j, it := range f.items {
-		if it.kind == itemComment && it.start >= start && it.end <= end && !trailing[j] {
-			return f.removeEntry(i)
-		}
+	// The region is items[from:fw]: start and end are item boundaries.
+	from, _ := slices.BinarySearchFunc(f.items, start, func(it item, start int) int { return it.start - start })
+	if comments[fw]-comments[from] > 0 {
+		return f.removeEntry(i)
 	}
 	return splice{start, end, text}
 }
@@ -505,18 +522,19 @@ func (f *File) renameSection(name string, sk, to sectionKey, header string) erro
 		if n := f.newlineAfter(h); n >= 0 {
 			end = n + 1
 		}
-		text := header + "\n"
+		var text strings.Builder
+		text.WriteString(header + "\n")
 		if rest < end && f.items[rest].kind != itemNewline {
-			text += "\t"
+			text.WriteByte('\t')
 			for _, it := range f.items[rest:end] {
 				if it.kind == itemHeader && f.secOf(it) == sk {
-					text += header
+					text.WriteString(header)
 				} else {
-					text += string(f.data[it.start:it.end])
+					text.Write(f.data[it.start:it.end])
 				}
 			}
 		}
-		splices = append(splices, splice{f.ownStart(h), f.lineEnd(h), text})
+		splices = append(splices, splice{f.ownStart(h), f.lineEnd(h), text.String()})
 		done = end - 1
 	}
 	return f.apply(name, splices, func(before, after []flatEntry) bool {

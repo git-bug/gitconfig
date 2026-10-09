@@ -175,6 +175,9 @@ type loader struct {
 
 	branch     string
 	branchRead bool
+
+	realGitDir  string // with '/', "" if it cannot be resolved
+	realDirRead bool
 }
 
 func (e Env) newLoader() (*loader, error) {
@@ -353,10 +356,14 @@ func (l *loader) gitdir(pattern, from string, fold bool) (bool, error) {
 	if globMatch(pattern, dir, fold) {
 		return true, nil
 	}
-	if real, err := filepath.EvalSymlinks(l.repo.gitDir); err == nil {
-		if real := filepath.ToSlash(real); real != dir {
-			return globMatch(pattern, real, fold), nil
+	if !l.realDirRead {
+		if real, err := filepath.EvalSymlinks(l.repo.gitDir); err == nil {
+			l.realGitDir = filepath.ToSlash(real)
 		}
+		l.realDirRead = true
+	}
+	if l.realGitDir != "" && l.realGitDir != dir {
+		return globMatch(pattern, l.realGitDir, fold), nil
 	}
 	return false, nil
 }

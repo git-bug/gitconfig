@@ -1,0 +1,777 @@
+./key.go:69:6: can inline Key.sectionKey with cost 11 as: method(Key) func() sectionKey { return sectionKey{...} }
+./config.go:31:6: cannot inline newConfig: function too complex: cost 88 exceeds budget 80
+./key.go:78:6: can inline isAlpha with cost 12 as: func(byte) bool { return byte(97) <= c | byte(32) && c | byte(32) <= byte(122) }
+./key.go:74:6: can inline isKeyChar with cost 28 as: func(byte) bool { return isAlpha(c) || byte(48) <= c && c <= byte(57) || c == byte(45) }
+./key.go:84:6: can inline validName with cost 77 as: func(string) bool { if s == "" || !isAlpha(s[0]) { return false }; for loop; return true }
+./key.go:115:6: can inline lowerASCII with cost 66 as: func(string) string { for loop; return s }
+./key.go:98:6: can inline validSection with cost 52 as: func(string) bool { for loop; return true }
+./key.go:109:6: can inline validSubsection with cost 70 as: func(string) bool { return !strings.ContainsAny(s, "\n\x00") }
+./key.go:25:6: cannot inline parseKey: function too complex: cost 668 exceeds budget 80
+./config.go:49:6: cannot inline (*Config).lookup: function too complex: cost 83 exceeds budget 80
+./config.go:61:6: can inline (*Config).filter with cost 17 as: method(*Config) func(sectionKey) iter.Seq[github.com/git-bug/gitconfig.Entry] { return func literal }
+./config.go:62:9: can inline (*Config).filter.func1 with cost 52 as: func(func(Entry) bool) { if c == nil { return  }; for loop }
+./config.go:75:6: cannot inline (*Config).Get: function too complex: cost 83 exceeds budget 80
+./config.go:85:6: cannot inline (*Config).GetAll: function too complex: cost 96 exceeds budget 80
+./config.go:98:6: can inline (*Config).All with cost 17 as: method(*Config) func() iter.Seq[github.com/git-bug/gitconfig.Entry] { return func literal }
+./config.go:99:9: can inline (*Config).All.func1 with cost 35 as: func(func(Entry) bool) { if c == nil { return  }; for loop }
+./config.go:113:6: cannot inline (*Config).Section: function too complex: cost 91 exceeds budget 80
+./config.go:120:6: cannot inline (*Config).Subsection: function too complex: cost 95 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:355:6: can inline slices.Clone[go.shape.[]string,go.shape.string] with cost 11 as: func(*[4]uintptr, go.shape.[]string) go.shape.[]string { if slices.s == nil { return nil }; return append(go.shape.[]string{}, slices.s...) }
+./config.go:128:6: cannot inline (*Config).Subsections: function too complex: cost 94 exceeds budget 80
+./config.go:136:6: can inline (*Config).Value with cost 74 as: method(*Config) func(string, string) string { if ok { return e.Value }; return def }
+./value.go:137:6: can inline equalFoldASCII with cost 64 as: func(string, string) bool { if len(s) != len(t) { return false }; for loop; return true }
+./value.go:100:6: can inline digitValue with cost 37 as: func(byte) int { switch statement; return 36 }
+./value.go:35:6: cannot inline parseInt: function too complex: cost 397 exceeds budget 80
+./value.go:15:6: cannot inline parseBool: function too complex: cost 510 exceeds budget 80
+./config.go:191:6: can inline Entry.error with cost 10 as: method(Entry) func(string, error) error { return &ValueError{...} }
+./config.go:234:6: cannot inline Entry.Bool: function too complex: cost 97 exceeds budget 80
+./config.go:146:6: cannot inline (*Config).Bool: function too complex: cost 149 exceeds budget 80
+./config.go:248:6: cannot inline Entry.Int: function too complex: cost 110 exceeds budget 80
+./config.go:161:6: cannot inline (*Config).Int: function too complex: cost 149 exceeds budget 80
+./value.go:120:6: cannot inline expandPath: function too complex: cost 97 exceeds budget 80
+./config.go:265:6: cannot inline Entry.Path: function too complex: cost 111 exceeds budget 80
+./config.go:177:6: cannot inline (*Config).Path: function too complex: cost 219 exceeds budget 80
+./discover.go:20:6: can inline osEnviron.Lookup with cost 70 as: method(osEnviron) func(string) (string, bool) { return string(.autotmp_4), .autotmp_5 }
+./discover.go:22:6: can inline get with cost 68 as: func(environ, string) string { v, _ := string(.autotmp_4), .autotmp_5; return v }
+./discover.go:112:6: cannot inline countEntries: function too complex: cost 733 exceeds budget 80
+./discover.go:186:6: cannot inline unquote: function too complex: cost 237 exceeds budget 80
+./discover.go:181:6: can inline isParamSpace with cost 74 as: func(byte) bool { return strings.IndexByte(" \t\n\v\f\r", c) >= 0 }
+./discover.go:148:6: cannot inline parseParameters: function too complex: cost 573 exceeds budget 80
+./platform.go:35:6: cannot inline transient: function too complex: cost 191 exceeds budget 80
+./platform.go:43:6: cannot inline retryTransient: function too complex: cost 405 exceeds budget 80
+./platform.go:14:6: can inline openRegular with cost 80 as: func(string) (*os.File, error) { flag := 0; flag |= 2048; return (*os.File)(.autotmp_4), .autotmp_5 }
+./load.go:130:6: cannot inline readConfigFile: function too complex: cost 93 exceeds budget 80
+./load.go:135:24: cannot inline readConfigFile.func1: unhandled op DEFER
+./load.go:140:3: can inline readConfigFile.func1.deferwrap1 with cost 69 as: func() { (*os.File).Close(.autotmp_5) }
+./load.go:122:6: can inline readSmall with cost 71 as: func(string) ([]byte, error) { return ([]byte)(.autotmp_3), .autotmp_4 }
+./discover.go:86:6: cannot inline resolveGitDir: function too complex: cost 605 exceeds budget 80
+./discover.go:27:6: cannot inline discover: function too complex: cost 1102 exceeds budget 80
+./edit.go:28:6: cannot inline editKey: function too complex: cost 226 exceeds budget 80
+./edit.go:66:6: can inline (*File).checkOpen with cost 13 as: method(*File) func(string) error { if f.closed { return &KeyError{...} }; return nil }
+./edit.go:59:6: cannot inline checkValue: function too complex: cost 84 exceeds budget 80
+./edit.go:43:6: cannot inline (*File).prepare: function too complex: cost 192 exceeds budget 80
+./parse.go:51:6: can inline (*parsed).secOf with cost 6 as: method(*parsed) func(item) sectionKey { return p.secs[it.sec] }
+./parse.go:71:6: can inline (*parsed).nameOf with cost 7 as: method(*parsed) func(item) string { return p.texts[it.text].name }
+./edit.go:74:6: can inline (*File).entriesOf with cost 76 as: method(*File) func(Key) []int { idx = <nil>; sk := Key.sectionKey(k); for loop; return idx }
+./parse.go:72:6: can inline (*parsed).valueOf with cost 7 as: method(*parsed) func(item) string { return p.texts[it.text].value }
+./edit.go:95:6: can inline flatten with cost 64 as: func(parsed) []flatEntry { out = <nil>; for loop; return out }
+./edit.go:105:6: can inline flatEntry.is with cost 26 as: method(flatEntry) func(Key) bool { return e.inSection && e.sec == Key.sectionKey(k) && e.name == k.Name }
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:10:6: can inline slices.insertionSortCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }] with cost 73 as: func(*[2]uintptr, []go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, int, int, func(go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }) int) { for loop }
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:20:6: cannot inline slices.siftDownCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 121 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:38:6: cannot inline slices.heapSortCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 200 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:240:6: cannot inline slices.breakPatternsCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 119 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:298:6: can inline slices.order2CmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }] with cost 38 as: func(*[2]uintptr, []go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, int, int, *int, func(go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }) int) (int, int) { if slices.cmp(slices.data[slices.b], slices.data[slices.a]) < 0 { *slices.swaps++; return slices.b, slices.a }; return slices.a, slices.b }
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:307:6: cannot inline slices.medianCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 158 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:315:6: can inline slices.medianAdjacentCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }] with cost 74 as: func(*[3]uintptr, []go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, int, *int, func(go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }) int) int { return slices.medianCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]((*[3]uintptr)(slices..dict[0]), slices.data, slices.a - 1, slices.a, slices.a + 1, slices.swaps, slices.cmp) }
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:261:6: cannot inline slices.choosePivotCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 401 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:319:6: can inline slices.reverseRangeCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }] with cost 35 as: func(*[2]uintptr, []go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, int, int, func(go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }) int) { slices.i := slices.a; slices.j := slices.b - 1; for loop }
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:195:6: cannot inline slices.partialInsertionSortCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 228 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:173:6: cannot inline slices.partitionEqualCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 124 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:135:6: cannot inline slices.partitionCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 248 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:61:6: cannot inline slices.pdqsortCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]: function too complex: cost 832 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/sort.go:30:6: can inline slices.SortFunc[go.shape.[]github.com/git-bug/gitconfig.splice,go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }] with cost 77 as: func(*[5]uintptr, go.shape.[]github.com/git-bug/gitconfig.splice, func(go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }, go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }) int) { slices.n := len(slices.x); slices.pdqsortCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]((*[11]uintptr)(slices..dict[0]), slices.x, 0, slices.n, bits.Len(uint(slices.n)), slices.cmp) }
+./edit.go:112:27: can inline (*File).apply.func1 with cost 6 as: func(splice, splice) int { return a.start - b.start }
+./parse.go:116:6: can inline (*parser).add with cost 36 as: method(*parser) func(itemKind, int, int) *item { p.parsed.items = append(p.parsed.items, item{...}); return &p.parsed.items[len(p.parsed.items) - 1] }
+./parse.go:159:6: can inline isNewline with cost 27 as: func([]byte, int) bool { return data[i] == byte(10) || data[i] == byte(13) && i + 1 < len(data) && data[i + 1] == byte(10) }
+./parse.go:148:6: can inline isSpace with cost 46 as: func([]byte, int) bool { switch statement; return false }
+./parse.go:164:6: can inline newlineLen with cost 10 as: func([]byte, int) int { if data[i] == byte(13) { return 2 }; return 1 }
+./parse.go:112:6: can inline (*parser).errorAt with cost 11 as: method(*parser) func(int, string) error { return &SyntaxError{...} }
+./parse.go:135:6: can inline (*parser).setSection with cost 44 as: method(*parser) func(sectionKey) { i, ok := int32(.autotmp_4), .autotmp_5; if !ok { i = int32(len(p.parsed.secs)); p.parsed.secs = append(p.parsed.secs, sec); p.secIndex[sec] = i }; p.sec = i; p.inSection = true }
+./parse.go:215:6: cannot inline (*parser).header: function too complex: cost 863 exceeds budget 80
+./parse.go:122:6: cannot inline (*parser).addEntry: function too complex: cost 162 exceeds budget 80
+./parse.go:334:6: cannot inline (*parser).value: unhandled op DEFER
+./parse.go:337:8: can inline (*parser).value.func1 with cost 6 as: func() { p.buf = buf[:0] }
+./parse.go:342:11: can inline (*parser).value.func2 with cost 15 as: func(int) { if pending >= 0 { buf = append(buf, d[pending:at]...); pending = -1 } }
+./parse.go:296:6: cannot inline (*parser).entry: function too complex: cost 384 exceeds budget 80
+./parse.go:171:6: cannot inline (*parser).run: function too complex: cost 677 exceeds budget 80
+./parse.go:102:6: cannot inline parse: function too complex: cost 172 exceeds budget 80
+./edit.go:111:6: cannot inline (*File).apply: function too complex: cost 399 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:20:6: can inline slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }] with cost 25 as: func(*[1]uintptr, go.shape.[]github.com/git-bug/gitconfig.flatEntry, go.shape.[]github.com/git-bug/gitconfig.flatEntry) bool { if len(slices.s1) != len(slices.s2) { return false }; for loop; return true }
+./edit.go:152:6: can inline filter with cost 38 as: func([]flatEntry, func(flatEntry) bool) []flatEntry { out = <nil>; for loop; return out }
+./edit.go:133:6: can inline checkKey with cost 17 as: func(Key, []string, bool) func([]flatEntry, []flatEntry) bool { return func literal }
+./edit.go:134:9: can inline checkKey.func1 with cost 231 as: func([]flatEntry, []flatEntry) bool { other := func literal; if !slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }](&slices..dict.Equal[[]github.com/git-bug/gitconfig.flatEntry,github.com/git-bug/gitconfig.flatEntry], filter(before, other), filter(after, other)) { return false }; got := filter(after, func literal); if len(got) != len(want) { return false }; for loop; return true }
+./edit.go:135:12: can inline checkKey.func1.1 with cost 31 as: func(flatEntry) bool { return !flatEntry.is(e, k) }
+./edit.go:139:24: can inline checkKey.func1.2 with cost 30 as: func(flatEntry) bool { return flatEntry.is(e, k) }
+./edit.go:166:6: can inline (*File).ownStart with cost 31 as: method(*File) func(int) int { if i > 0 && f.parsed.items[i - 1].kind == itemKind(1) { return f.parsed.items[i - 1].start }; return f.parsed.items[i].start }
+./edit.go:174:6: can inline (*File).firstOnLine with cost 45 as: method(*File) func(int) bool { j := i - 1; if j >= 0 && f.parsed.items[j].kind == itemKind(1) { j-- }; return j < 0 || f.parsed.items[j].kind == itemKind(2) || f.parsed.items[j].kind == itemKind(0) }
+./edit.go:184:6: can inline (*File).newlineAfter with cost 30 as: method(*File) func(int) int { for loop; return -1 }
+./edit.go:194:6: can inline (*File).lineEnd with cost 52 as: method(*File) func(int) int { if n >= 0 { return f.parsed.items[n].end }; return len(f.data) }
+./edit.go:203:6: can inline (*File).terminator with cost 62 as: method(*File) func() string { if len(f.parsed.items) == 0 { return "" }; last := f.parsed.items[len(f.parsed.items) - 1]; switch statement; return "\n" }
+./edit.go:228:6: cannot inline quoteValue: function too complex: cost 413 exceeds budget 80
+./edit.go:221:6: can inline formatEntry with cost 66 as: func(string, string) string { return "\t" + name + " = " + quoteValue(value) + "\n" }
+./edit.go:254:6: cannot inline formatHeader: function too complex: cost 103 exceeds budget 80
+./edit.go:284:6: cannot inline (*File).entryLineEnd: function too complex: cost 100 exceeds budget 80
+./edit.go:263:6: cannot inline (*File).replaceEntry: function too complex: cost 229 exceeds budget 80
+./edit.go:274:6: cannot inline (*File).removeEntry: function too complex: cost 249 exceeds budget 80
+./edit.go:348:16: can inline (*File).unsetEntry.func1 with cost 23 as: func(item) bool { return it.kind == itemKind(4) && (*parsed).secOf(f.parsed, it) == f.parsed.secs[sec] }
+./edit.go:346:6: cannot inline (*File).unsetEntry: function too complex: cost 515 exceeds budget 80
+./edit.go:334:27: can inline (*File).unsetEntries.func1 with cost 6 as: func(splice, splice) int { return a.start - b.start }
+./edit.go:313:6: cannot inline (*File).unsetEntries: function too complex: cost 298 exceeds budget 80
+./edit.go:398:6: cannot inline (*File).insert: function too complex: cost 594 exceeds budget 80
+./edit.go:439:6: can inline sectionArg with cost 71 as: func(string) error { if section == "" || !validSection(section) { return &KeyError{...} }; return nil }
+./edit.go:447:6: can inline (*File).headersOf with cost 40 as: method(*File) func(sectionKey) []int { idx = <nil>; for loop; return idx }
+./edit.go:459:6: cannot inline (*File).removeSection: function too complex: cost 265 exceeds budget 80
+./edit.go:475:32: can inline (*File).removeSection.func1 with cost 88 as: func([]flatEntry, []flatEntry) bool { return slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }](&slices..dict.Equal[[]github.com/git-bug/gitconfig.flatEntry,github.com/git-bug/gitconfig.flatEntry], filter(before, func literal), after) }
+./edit.go:476:38: can inline (*File).removeSection.func1.1 with cost 9 as: func(flatEntry) bool { return !e.inSection || e.sec != sk }
+./edit.go:483:6: cannot inline (*File).renameSection: function too complex: cost 479 exceeds budget 80
+./edit.go:522:32: can inline (*File).renameSection.func1 with cost 55 as: func([]flatEntry, []flatEntry) bool { for loop; return slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }](&slices..dict.Equal[[]github.com/git-bug/gitconfig.flatEntry,github.com/git-bug/gitconfig.flatEntry], before, after) }
+./env.go:30:6: cannot inline Scope.String: function too complex: cost 99 exceeds budget 80
+./env.go:120:6: can inline Discover with cost 72 as: func(string) (Env, error) { return Env(.autotmp_3), .autotmp_4 }
+./load.go:31:6: cannot inline Env.repo: function too complex: cost 583 exceeds budget 80
+./load.go:180:6: cannot inline Env.newLoader: function too complex: cost 81 exceeds budget 80
+./load.go:162:6: cannot inline isMissing: function too complex: cost 125 exceeds budget 80
+./parse.go:55:6: can inline (*parsed).entries with cost 71 as: method(*parsed) func(Scope, string, []Entry) []Entry { for loop; return out }
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:355:6: can inline slices.Clone[go.shape.[]github.com/git-bug/gitconfig.Entry,go.shape.struct { Key github.com/git-bug/gitconfig.Key; Value string; Implicit bool; Origin github.com/git-bug/gitconfig.Origin }] with cost 11 as: func(*[4]uintptr, go.shape.[]github.com/git-bug/gitconfig.Entry) go.shape.[]github.com/git-bug/gitconfig.Entry { if slices.s == nil { return nil }; return append(go.shape.[]github.com/git-bug/gitconfig.Entry{}, slices.s...) }
+./load.go:290:6: can inline dirPrefix with cost 44 as: func(string) string { i := strings.LastIndexByte(path, byte(47)); return path[:i + 1] }
+./load.go:366:6: can inline isAbsPattern with cost 61 as: func(string) bool { if strings.HasPrefix(p, "/") { return true }; return false && filepath.IsAbs(filepath.FromSlash(p)) }
+./glob.go:80:6: cannot inline compileClass: function too complex: cost 167 exceeds budget 80
+./glob.go:32:6: cannot inline compileGlob: function too complex: cost 307 exceeds budget 80
+./glob.go:215:6: can inline newStateSet with cost 8 as: func(int32) *stateSet { return &stateSet{...} }
+./glob.go:225:6: can inline (*stateSet).add with cost 26 as: method(*stateSet) func(int32) bool { if ss.mark[id] == ss.gen { return false }; ss.mark[id] = ss.gen; ss.list = append(ss.list, id); return true }
+./glob.go:219:6: can inline (*stateSet).reset with cost 11 as: method(*stateSet) func() { ss.list = ss.list[:0]; ss.gen++ }
+./glob.go:131:6: can inline sameByte with cost 28 as: func(byte, byte, bool) bool { return a == b || fold && isAlpha(a) && a ^ byte(32) == b }
+./glob.go:124:6: can inline swapCase with cost 22 as: func(byte) byte { if isAlpha(c) { return c ^ byte(32) }; return c }
+./glob.go:113:6: cannot inline globToken.inClass: function too complex: cost 95 exceeds budget 80
+./glob.go:234:6: can inline (*stateSet).has with cost 8 as: method(*stateSet) func(int32) bool { return ss.mark[id] == ss.gen }
+./glob.go:148:11: can inline globMatch.func1 with cost 60 as: func(*stateSet, int32) { for loop }
+./glob.go:137:6: cannot inline globMatch: function too complex: cost 936 exceeds budget 80
+./load.go:330:6: cannot inline (*loader).gitdir: function too complex: cost 532 exceeds budget 80
+./load.go:104:6: cannot inline (*repo).branch: function too complex: cost 333 exceeds budget 80
+./load.go:300:6: cannot inline (*loader).condition: function too complex: cost 408 exceeds budget 80
+./key.go:54:6: can inline Key.String with cost 20 as: method(Key) func() string { if k.HasSubsection { return k.Section + "." + k.Subsection + "." + k.Name }; return k.Section + "." + k.Name }
+./load.go:280:6: can inline (*loader).fail with cost 62 as: method(*loader) func(string, Entry, string) error { if from == "" { return &KeyError{...} }; return &FileError{...} }
+./load.go:206:6: cannot inline (*loader).load: function too complex: cost 452 exceeds budget 80
+./load.go:241:6: cannot inline (*loader).include: function too complex: cost 529 exceeds budget 80
+./load.go:195:6: cannot inline (*loader).loadFile: function too complex: cost 208 exceeds budget 80
+./load.go:53:6: can inline (*repo).localConfig with cost 69 as: method(*repo) func() string { return filepath.Join(... argument...) }
+./load.go:80:6: cannot inline worktreeConfigIn: function too complex: cost 117 exceeds budget 80
+./load.go:57:6: can inline (*repo).worktreeConfig with cost 69 as: method(*repo) func() string { return filepath.Join(... argument...) }
+./key.go:12:6: cannot inline ParseKey: function too complex: cost 82 exceeds budget 80
+./load.go:374:6: cannot inline (*loader).command: function too complex: cost 188 exceeds budget 80
+./load.go:188:6: can inline (*loader).config with cost 62 as: method(*loader) func() *Config { return newConfig(l.entries) }
+./env.go:137:6: cannot inline Env.Load: function too complex: cost 819 exceeds budget 80
+./env.go:178:6: cannot inline Env.LoadProtected: function too complex: cost 368 exceeds budget 80
+./env.go:247:6: cannot inline realPath: function too complex: cost 138 exceeds budget 80
+./env.go:208:6: cannot inline Env.SafeDirectory: function too complex: cost 686 exceeds budget 80
+./load.go:63:6: cannot inline (*repo).worktreeConfigEnabled: function too complex: cost 791 exceeds budget 80
+./load.go:97:6: cannot inline (*repo).severalWorktrees: function too complex: cost 143 exceeds budget 80
+./env.go:353:6: cannot inline Env.scopeFile: function too complex: cost 447 exceeds budget 80
+./env.go:269:6: cannot inline Env.LoadScope: function too complex: cost 508 exceeds budget 80
+./env.go:307:6: cannot inline Env.LoadFile: function too complex: cost 212 exceeds budget 80
+./env.go:326:6: cannot inline Env.WritePath: function too complex: cost 208 exceeds budget 80
+./update.go:96:6: cannot inline followLinks: function too complex: cost 571 exceeds budget 80
+./update.go:87:6: cannot inline callClosing: unhandled op DEFER
+./update.go:88:8: can inline callClosing.func1 with cost 4 as: func() { f.closed = true }
+./update.go:19:6: cannot inline updateFile: unhandled op DEFER
+./update.go:34:8: can inline updateFile.func1 with cost 132 as: func() { if !committed { (*os.File).Close(lock); os.Remove(lockPath) } }
+./update.go:79:27: can inline updateFile.func2 with cost 67 as: func() error { return os.Rename(lockPath, target) }
+./env.go:379:6: cannot inline Env.UpdateScope: function too complex: cost 217 exceeds budget 80
+./env.go:424:6: can inline Env.UpdateFile with cost 63 as: method(Env) func(string, func(*File) error) error { return updateFile(path, Scope(0), fn) }
+./errors.go:74:6: can inline (*KeyError).Error with cost 69 as: method(*KeyError) func() string { return fmt.Sprintf("%v: %q", ... argument...) }
+./errors.go:78:6: can inline (*KeyError).Unwrap with cost 3 as: method(*KeyError) func() error { return e.Err }
+./errors.go:111:6: can inline (*SyntaxError).Error with cost 72 as: method(*SyntaxError) func() string { return fmt.Sprintf("gitconfig: %s line %d in file %s", ... argument...) }
+./errors.go:90:6: cannot inline (*FileError).Error: function too complex: cost 219 exceeds budget 80
+./errors.go:98:6: can inline (*FileError).Unwrap with cost 3 as: method(*FileError) func() error { return e.Err }
+./errors.go:124:6: cannot inline (*ValueError).Error: function too complex: cost 344 exceeds budget 80
+./errors.go:140:6: can inline (*ValueError).Unwrap with cost 3 as: method(*ValueError) func() error { return e.Err }
+./file.go:55:6: cannot inline Parse: function too complex: cost 101 exceeds budget 80
+./file.go:66:6: can inline (*File).Bytes with cost 16 as: method(*File) func() []byte { return bytes.Clone(f.data) }
+./file.go:78:6: cannot inline (*File).Config: function too complex: cost 150 exceeds budget 80
+./file.go:92:6: cannot inline (*File).Set: function too complex: cost 520 exceeds budget 80
+./file.go:112:6: cannot inline (*File).ReplaceAll: function too complex: cost 559 exceeds budget 80
+./file.go:131:6: cannot inline (*File).Add: function too complex: cost 340 exceeds budget 80
+./file.go:141:72: can inline (*File).Add.func1 with cost 158 as: func([]flatEntry, []flatEntry) bool { got := filter(after, func literal); return .autotmp_4(before, after) && !got[len(got) - 1].implicit }
+./file.go:143:24: can inline (*File).Add.func1.1 with cost 30 as: func(flatEntry) bool { return flatEntry.is(e, k) }
+./file.go:151:6: cannot inline (*File).Unset: function too complex: cost 329 exceeds budget 80
+./file.go:169:6: cannot inline (*File).UnsetAll: function too complex: cost 324 exceeds budget 80
+./file.go:187:6: cannot inline (*File).RemoveSection: function too complex: cost 253 exceeds budget 80
+./file.go:200:6: cannot inline (*File).RemoveSubsection: function too complex: cost 341 exceeds budget 80
+./file.go:220:6: cannot inline (*File).RenameSection: function too complex: cost 464 exceeds budget 80
+./file.go:240:6: cannot inline (*File).RenameSubsection: function too complex: cost 412 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:67:6: can inline atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).CompareAndSwap with cost 63 as: method(*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]) func(*[16]uintptr, *go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }, *go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }) bool { return atomic.CompareAndSwapPointer(&atomic.x.v, unsafe.Pointer(atomic.old), unsafe.Pointer(atomic.new)) }
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:64:6: can inline atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Swap with cost 62 as: method(*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]) func(*[16]uintptr, *go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }) *go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int } { return (*go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int })(atomic.SwapPointer(&atomic.x.v, unsafe.Pointer(atomic.new))) }
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:61:6: can inline atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Store with cost 61 as: method(*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]) func(*[16]uintptr, *go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }) { atomic.StorePointer(&atomic.x.v, unsafe.Pointer(atomic.val)) }
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:58:6: can inline atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Load with cost 4 as: method(*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]) func(*[16]uintptr) *go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int } { return (*go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int })(atomic.LoadPointer(&atomic.x.v)) }
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:67:6: can inline atomic.(*Pointer[os.dirInfo]).CompareAndSwap with cost 70 as: method(*atomic.Pointer[os.dirInfo]) func(*os.dirInfo, *os.dirInfo) bool { return (*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).CompareAndSwap(atomic.x, &atomic..dict.Pointer[os.dirInfo], atomic.old, atomic.new) }
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:64:6: can inline atomic.(*Pointer[os.dirInfo]).Swap with cost 68 as: method(*atomic.Pointer[os.dirInfo]) func(*os.dirInfo) *os.dirInfo { return (*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Swap(atomic.x, &atomic..dict.Pointer[os.dirInfo], atomic.new) }
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:61:6: can inline atomic.(*Pointer[os.dirInfo]).Store with cost 66 as: method(*atomic.Pointer[os.dirInfo]) func(*os.dirInfo) { (*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Store(atomic.x, &atomic..dict.Pointer[os.dirInfo], atomic.val) }
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:58:6: can inline atomic.(*Pointer[os.dirInfo]).Load with cost 9 as: method(*atomic.Pointer[os.dirInfo]) func() *os.dirInfo { return (*atomic.Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Load(atomic.x, &atomic..dict.Pointer[os.dirInfo]) }
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:20:6: can inline slices.Equal[[]github.com/git-bug/gitconfig.flatEntry,github.com/git-bug/gitconfig.flatEntry] with cost 32 as: func([]flatEntry, []flatEntry) bool { return slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }](&slices..dict.Equal[[]github.com/git-bug/gitconfig.flatEntry,github.com/git-bug/gitconfig.flatEntry], slices.s1, slices.s2) }
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:355:6: can inline slices.Clone[[]github.com/git-bug/gitconfig.Entry,github.com/git-bug/gitconfig.Entry] with cost 17 as: func([]Entry) []Entry { return slices.Clone[go.shape.[]github.com/git-bug/gitconfig.Entry,go.shape.struct { Key github.com/git-bug/gitconfig.Key; Value string; Implicit bool; Origin github.com/git-bug/gitconfig.Origin }](&slices..dict.Clone[[]github.com/git-bug/gitconfig.Entry,github.com/git-bug/gitconfig.Entry], slices.s) }
+../../.asdf/installs/golang/1.27.1/go/src/slices/sort.go:30:6: cannot inline slices.SortFunc[[]github.com/git-bug/gitconfig.splice,github.com/git-bug/gitconfig.splice]: function too complex: cost 83 exceeds budget 80
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:355:6: can inline slices.Clone[[]string,string] with cost 17 as: func([]string) []string { return slices.Clone[go.shape.[]string,go.shape.string](&slices..dict.Clone[[]string,string], slices.s) }
+./discover.go:136:36: inlining call to errors.New
+./edit.go:17:31: inlining call to errors.New
+./errors.go:23:26: inlining call to errors.New
+./errors.go:27:32: inlining call to errors.New
+./errors.go:32:28: inlining call to errors.New
+./errors.go:36:30: inlining call to errors.New
+./errors.go:40:24: inlining call to errors.New
+./errors.go:44:30: inlining call to errors.New
+./errors.go:48:27: inlining call to errors.New
+./errors.go:52:28: inlining call to errors.New
+./errors.go:56:29: inlining call to errors.New
+./errors.go:60:25: inlining call to errors.New
+./errors.go:64:24: inlining call to errors.New
+./update.go:16:33: inlining call to errors.New
+./value.go:12:32: inlining call to errors.New
+./value.go:113:26: inlining call to errors.New
+./value.go:114:26: inlining call to errors.New
+./value.go:115:26: inlining call to errors.New
+./config.go:40:28: inlining call to Key.sectionKey
+./key.go:75:16: inlining call to isAlpha
+./key.go:85:24: inlining call to isAlpha
+./key.go:89:16: inlining call to isKeyChar
+./key.go:89:16: inlining call to isAlpha
+./key.go:100:16: inlining call to isKeyChar
+./key.go:100:16: inlining call to isAlpha
+./key.go:110:29: inlining call to strings.ContainsAny
+./key.go:26:28: inlining call to strings.IndexByte
+./key.go:27:31: inlining call to strings.LastIndexByte
+./key.go:32:15: inlining call to validName
+./key.go:35:27: inlining call to lowerASCII
+./key.go:37:19: inlining call to validSection
+./key.go:40:25: inlining call to lowerASCII
+./key.go:43:18: inlining call to validSection
+./key.go:43:49: inlining call to validSubsection
+./key.go:46:24: inlining call to lowerASCII
+./key.go:26:28: inlining call to stringslite.IndexByte
+./key.go:27:31: inlining call to bytealg.LastIndexByteString
+./key.go:32:15: inlining call to isAlpha
+./key.go:32:15: inlining call to isKeyChar
+./key.go:37:19: inlining call to isKeyChar
+./key.go:43:18: inlining call to isKeyChar
+./key.go:43:49: inlining call to strings.ContainsAny
+./key.go:32:15: inlining call to isAlpha
+./key.go:37:19: inlining call to isAlpha
+./key.go:43:18: inlining call to isAlpha
+./config.go:67:23: inlining call to Key.sectionKey
+./config.go:114:48: inlining call to lowerASCII
+./config.go:114:17: inlining call to (*Config).filter
+./config.go:121:39: inlining call to lowerASCII
+./config.go:121:17: inlining call to (*Config).filter
+./config.go:132:46: inlining call to lowerASCII
+./config.go:132:21: inlining call to slices.Clone[go.shape.[]string,go.shape.string]
+./value.go:45:66: inlining call to digitValue
+./value.go:56:25: inlining call to digitValue
+./value.go:17:30: inlining call to equalFoldASCII
+./value.go:17:58: inlining call to equalFoldASCII
+./value.go:17:83: inlining call to equalFoldASCII
+./value.go:19:21: inlining call to equalFoldASCII
+./value.go:19:48: inlining call to equalFoldASCII
+./value.go:19:74: inlining call to equalFoldASCII
+./config.go:240:24: inlining call to Entry.error
+./config.go:250:20: inlining call to Entry.error
+./config.go:254:20: inlining call to Entry.error
+./value.go:122:24: inlining call to strings.HasPrefix
+./value.go:124:36: inlining call to strings.HasPrefix
+./value.go:129:24: inlining call to strings.HasPrefix
+./value.go:122:24: inlining call to stringslite.HasPrefix
+./value.go:124:36: inlining call to stringslite.HasPrefix
+./value.go:129:24: inlining call to stringslite.HasPrefix
+./config.go:267:21: inlining call to Entry.error
+./config.go:271:21: inlining call to Entry.error
+./discover.go:113:14: inlining call to get
+./discover.go:119:25: inlining call to fmt.Errorf
+./discover.go:123:57: inlining call to strconv.Itoa
+./discover.go:125:26: inlining call to fmt.Errorf
+./discover.go:127:61: inlining call to strconv.Itoa
+./discover.go:129:26: inlining call to fmt.Errorf
+./discover.go:119:25: inlining call to errors.New
+./discover.go:123:57: inlining call to strconv.Itoa
+./discover.go:125:26: inlining call to errors.New
+./discover.go:127:61: inlining call to strconv.Itoa
+./discover.go:129:26: inlining call to errors.New
+./discover.go:193:25: inlining call to strings.IndexByte
+./discover.go:197:17: inlining call to strings.(*Builder).WriteString
+./discover.go:200:16: inlining call to strings.(*Builder).WriteByte
+./discover.go:204:19: inlining call to strings.(*Builder).String
+./discover.go:193:25: inlining call to stringslite.IndexByte
+./discover.go:197:17: inlining call to strings.(*Builder).copyCheck
+./discover.go:200:16: inlining call to strings.(*Builder).copyCheck
+./discover.go:197:17: inlining call to abi.NoEscape
+./discover.go:200:16: inlining call to abi.NoEscape
+./discover.go:182:26: inlining call to strings.IndexByte
+./discover.go:182:26: inlining call to stringslite.IndexByte
+./discover.go:156:32: inlining call to strings.CutPrefix
+./discover.go:158:30: inlining call to isParamSpace
+./discover.go:167:36: inlining call to strings.Cut
+./discover.go:172:33: inlining call to isParamSpace
+./discover.go:156:32: inlining call to stringslite.CutPrefix
+./discover.go:158:30: inlining call to strings.IndexByte
+./discover.go:172:33: inlining call to strings.IndexByte
+./discover.go:156:32: inlining call to stringslite.HasPrefix
+./discover.go:158:30: inlining call to stringslite.IndexByte
+./discover.go:172:33: inlining call to stringslite.IndexByte
+./load.go:136:24: inlining call to openRegular
+./load.go:145:26: inlining call to fs.FileMode.IsRegular
+./load.go:151:40: inlining call to io.LimitReader
+./load.go:140:16: inlining call to os.(*File).Close
+./discover.go:92:39: inlining call to fs.FileMode.IsRegular
+./discover.go:95:24: inlining call to readSmall
+./discover.go:99:31: inlining call to strings.CutPrefix
+./discover.go:101:54: inlining call to errors.New
+./discover.go:103:20: inlining call to filepath.IsAbs
+./discover.go:104:36: inlining call to filepath.Dir
+./discover.go:104:23: inlining call to filepath.Join
+./discover.go:99:31: inlining call to stringslite.CutPrefix
+./discover.go:103:20: inlining call to filepathlite.IsAbs
+./discover.go:99:31: inlining call to stringslite.HasPrefix
+./discover.go:103:20: inlining call to stringslite.HasPrefix
+./discover.go:30:14: inlining call to get
+./discover.go:40:16: inlining call to get
+./discover.go:41:57: inlining call to filepath.Join
+./discover.go:43:57: inlining call to filepath.Join
+./discover.go:46:57: inlining call to filepath.Join
+./discover.go:54:28: inlining call to fmt.Errorf
+./discover.go:70:36: inlining call to get
+./discover.go:54:28: inlining call to errors.New
+./edit.go:33:28: inlining call to strings.IndexByte
+./edit.go:34:31: inlining call to strings.LastIndexByte
+./edit.go:33:28: inlining call to stringslite.IndexByte
+./edit.go:34:31: inlining call to bytealg.LastIndexByteString
+./edit.go:60:22: inlining call to strings.IndexByte
+./edit.go:60:22: inlining call to stringslite.IndexByte
+./edit.go:44:23: inlining call to (*File).checkOpen
+./edit.go:76:20: inlining call to Key.sectionKey
+./edit.go:78:53: inlining call to (*parsed).secOf
+./edit.go:78:75: inlining call to (*parsed).nameOf
+./edit.go:99:53: inlining call to (*parsed).secOf
+./edit.go:99:67: inlining call to (*parsed).nameOf
+./edit.go:99:82: inlining call to (*parsed).valueOf
+./edit.go:106:45: inlining call to Key.sectionKey
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:244:28: inlining call to slices.nextPowerOfTwo
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:247:33: inlining call to slices.(*xorshift).Next
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:308:22: inlining call to slices.order2CmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:309:22: inlining call to slices.order2CmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:310:22: inlining call to slices.order2CmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:279:29: inlining call to slices.medianAdjacentCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:280:29: inlining call to slices.medianAdjacentCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:281:29: inlining call to slices.medianAdjacentCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:73:24: inlining call to slices.insertionSortCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/zsortanyfunc.go:91:23: inlining call to slices.reverseRangeCmpFunc[go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+./parse.go:153:20: inlining call to isNewline
+./parse.go:219:30: inlining call to isKeyChar
+./parse.go:222:20: inlining call to lowerASCII
+./parse.go:224:19: inlining call to (*parser).errorAt
+./parse.go:231:20: inlining call to (*parser).errorAt
+./parse.go:234:30: inlining call to strings.IndexByte
+./parse.go:240:14: inlining call to isSpace
+./parse.go:241:28: inlining call to isSpace
+./parse.go:245:20: inlining call to (*parser).errorAt
+./parse.go:251:21: inlining call to (*parser).errorAt
+./parse.go:260:22: inlining call to (*parser).errorAt
+./parse.go:267:21: inlining call to (*parser).errorAt
+./parse.go:273:30: inlining call to isNewline
+./parse.go:274:20: inlining call to (*parser).errorAt
+./parse.go:277:20: inlining call to (*parser).errorAt
+./parse.go:281:30: inlining call to strings.IndexByte
+./parse.go:287:19: inlining call to (*parser).errorAt
+./parse.go:290:14: inlining call to (*parser).setSection
+./parse.go:292:7: inlining call to (*parser).add
+./parse.go:219:30: inlining call to isAlpha
+./parse.go:234:30: inlining call to stringslite.IndexByte
+./parse.go:240:14: inlining call to isNewline
+./parse.go:241:28: inlining call to isNewline
+./parse.go:281:30: inlining call to stringslite.IndexByte
+./parse.go:123:13: inlining call to (*parser).add
+./parse.go:126:17: inlining call to lowerASCII
+./parse.go:350:15: inlining call to isNewline
+./parse.go:352:34: inlining call to (*parser).errorAt
+./parse.go:360:35: inlining call to (*parser).errorAt
+./parse.go:362:10: inlining call to (*parser).value.func2
+./parse.go:367:9: inlining call to (*parser).value.func2
+./parse.go:368:16: inlining call to isNewline
+./parse.go:369:24: inlining call to newlineLen
+./parse.go:386:34: inlining call to (*parser).errorAt
+./parse.go:390:9: inlining call to (*parser).value.func2
+./parse.go:404:9: inlining call to (*parser).value.func2
+./parse.go:410:32: inlining call to (*parser).errorAt
+./parse.go:413:25: inlining call to bytes.IndexByte
+./parse.go:300:29: inlining call to isKeyChar
+./parse.go:308:29: inlining call to isNewline
+./parse.go:314:19: inlining call to (*parser).errorAt
+./parse.go:300:29: inlining call to isAlpha
+./parse.go:173:20: inlining call to bytes.HasPrefix
+./parse.go:174:8: inlining call to (*parser).add
+./parse.go:181:15: inlining call to isSpace
+./parse.go:182:33: inlining call to isSpace
+./parse.go:185:9: inlining call to (*parser).add
+./parse.go:186:17: inlining call to isNewline
+./parse.go:187:23: inlining call to newlineLen
+./parse.go:188:9: inlining call to (*parser).add
+./parse.go:192:27: inlining call to bytes.IndexByte
+./parse.go:199:9: inlining call to (*parser).add
+./parse.go:204:15: inlining call to isAlpha
+./parse.go:209:20: inlining call to (*parser).errorAt
+./parse.go:173:20: inlining call to bytes.Equal
+./parse.go:181:15: inlining call to isNewline
+./parse.go:182:33: inlining call to isNewline
+./edit.go:112:17: inlining call to slices.SortFunc[go.shape.[]github.com/git-bug/gitconfig.splice,go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+./edit.go:122:33: inlining call to flatten
+./edit.go:122:52: inlining call to flatten
+./edit.go:122:33: inlining call to (*parsed).secOf
+./edit.go:122:33: inlining call to (*parsed).nameOf
+./edit.go:122:33: inlining call to (*parsed).valueOf
+./edit.go:122:52: inlining call to (*parsed).secOf
+./edit.go:122:52: inlining call to (*parsed).nameOf
+./edit.go:122:52: inlining call to (*parsed).valueOf
+./edit.go:136:26: inlining call to filter
+./edit.go:136:49: inlining call to filter
+./edit.go:136:19: inlining call to slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }]
+./edit.go:139:16: inlining call to filter
+./edit.go:136:26: inlining call to checkKey.func1.1
+./edit.go:136:49: inlining call to checkKey.func1.1
+./edit.go:139:16: inlining call to checkKey.func1.2
+./edit.go:136:26: inlining call to flatEntry.is
+./edit.go:136:49: inlining call to flatEntry.is
+./edit.go:139:16: inlining call to flatEntry.is
+./edit.go:136:26: inlining call to Key.sectionKey
+./edit.go:136:49: inlining call to Key.sectionKey
+./edit.go:139:16: inlining call to Key.sectionKey
+./edit.go:135:49: inlining call to flatEntry.is
+./edit.go:135:49: inlining call to Key.sectionKey
+./edit.go:139:60: inlining call to flatEntry.is
+./edit.go:139:60: inlining call to Key.sectionKey
+./edit.go:195:24: inlining call to (*File).newlineAfter
+./edit.go:230:28: inlining call to strings.HasPrefix
+./edit.go:230:57: inlining call to strings.HasSuffix
+./edit.go:230:88: inlining call to strings.ContainsAny
+./edit.go:232:15: inlining call to strings.(*Builder).WriteByte
+./edit.go:237:16: inlining call to strings.(*Builder).WriteByte
+./edit.go:238:16: inlining call to strings.(*Builder).WriteByte
+./edit.go:240:18: inlining call to strings.(*Builder).WriteString
+./edit.go:242:18: inlining call to strings.(*Builder).WriteString
+./edit.go:244:16: inlining call to strings.(*Builder).WriteByte
+./edit.go:248:15: inlining call to strings.(*Builder).WriteByte
+./edit.go:250:18: inlining call to strings.(*Builder).String
+./edit.go:230:28: inlining call to stringslite.HasPrefix
+./edit.go:230:57: inlining call to stringslite.HasSuffix
+./edit.go:232:15: inlining call to strings.(*Builder).copyCheck
+./edit.go:237:16: inlining call to strings.(*Builder).copyCheck
+./edit.go:238:16: inlining call to strings.(*Builder).copyCheck
+./edit.go:240:18: inlining call to strings.(*Builder).copyCheck
+./edit.go:242:18: inlining call to strings.(*Builder).copyCheck
+./edit.go:244:16: inlining call to strings.(*Builder).copyCheck
+./edit.go:248:15: inlining call to strings.(*Builder).copyCheck
+./edit.go:232:15: inlining call to abi.NoEscape
+./edit.go:237:16: inlining call to abi.NoEscape
+./edit.go:238:16: inlining call to abi.NoEscape
+./edit.go:240:18: inlining call to abi.NoEscape
+./edit.go:242:18: inlining call to abi.NoEscape
+./edit.go:244:16: inlining call to abi.NoEscape
+./edit.go:248:15: inlining call to abi.NoEscape
+./edit.go:258:26: inlining call to strings.NewReplacer
+./edit.go:285:21: inlining call to (*File).newlineAfter
+./edit.go:264:21: inlining call to formatEntry
+./edit.go:265:19: inlining call to (*File).firstOnLine
+./edit.go:269:26: inlining call to (*File).ownStart
+./edit.go:275:18: inlining call to (*File).firstOnLine
+./edit.go:276:27: inlining call to (*File).ownStart
+./edit.go:278:26: inlining call to (*File).ownStart
+./edit.go:354:66: inlining call to (*File).unsetEntry.func1
+./edit.go:357:16: inlining call to (*File).unsetEntry.func1
+./edit.go:364:82: inlining call to (*File).unsetEntry.func1
+./edit.go:380:20: inlining call to (*File).lineEnd
+./edit.go:354:66: inlining call to (*parsed).secOf
+./edit.go:357:16: inlining call to (*parsed).secOf
+./edit.go:364:82: inlining call to (*parsed).secOf
+./edit.go:380:20: inlining call to (*File).newlineAfter
+./edit.go:348:76: inlining call to (*parsed).secOf
+./edit.go:334:17: inlining call to slices.SortFunc[go.shape.[]github.com/git-bug/gitconfig.splice,go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+./edit.go:399:20: inlining call to Key.sectionKey
+./edit.go:402:38: inlining call to (*parsed).secOf
+./edit.go:406:21: inlining call to formatEntry
+./edit.go:408:55: inlining call to (*File).terminator
+./edit.go:418:25: inlining call to (*File).newlineAfter
+./edit.go:427:55: inlining call to (*File).terminator
+./edit.go:440:35: inlining call to validSection
+./edit.go:440:35: inlining call to isKeyChar
+./edit.go:440:35: inlining call to isAlpha
+./edit.go:450:38: inlining call to (*parsed).secOf
+./edit.go:460:24: inlining call to (*File).headersOf
+./edit.go:469:21: inlining call to (*File).ownStart
+./edit.go:473:46: inlining call to (*File).ownStart
+./edit.go:460:24: inlining call to (*parsed).secOf
+./edit.go:476:29: inlining call to filter
+./edit.go:476:22: inlining call to slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }]
+./edit.go:476:29: inlining call to (*File).removeSection.func1.1
+./edit.go:484:24: inlining call to (*File).headersOf
+./edit.go:494:20: inlining call to (*File).firstOnLine
+./edit.go:505:25: inlining call to (*File).newlineAfter
+./edit.go:512:40: inlining call to (*parsed).secOf
+./edit.go:519:46: inlining call to (*File).ownStart
+./edit.go:519:60: inlining call to (*File).lineEnd
+./edit.go:484:24: inlining call to (*parsed).secOf
+./edit.go:519:60: inlining call to (*File).newlineAfter
+./edit.go:528:22: inlining call to slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }]
+./env.go:45:32: inlining call to strconv.Itoa
+./env.go:45:32: inlining call to strconv.Itoa
+./load.go:35:20: inlining call to filepath.IsAbs
+./load.go:39:38: inlining call to filepath.Join
+./load.go:39:24: inlining call to readSmall
+./load.go:43:21: inlining call to filepath.IsAbs
+./load.go:44:23: inlining call to filepath.Join
+./load.go:46:31: inlining call to filepath.Clean
+./load.go:48:45: inlining call to filepath.Join
+./load.go:35:20: inlining call to filepathlite.IsAbs
+./load.go:43:21: inlining call to filepathlite.IsAbs
+./load.go:35:20: inlining call to stringslite.HasPrefix
+./load.go:43:21: inlining call to stringslite.HasPrefix
+./load.go:291:28: inlining call to strings.LastIndexByte
+./load.go:291:28: inlining call to bytealg.LastIndexByteString
+./load.go:367:22: inlining call to strings.HasPrefix
+./load.go:370:71: inlining call to filepath.FromSlash
+./load.go:370:52: inlining call to filepath.IsAbs
+./load.go:367:22: inlining call to stringslite.HasPrefix
+./load.go:370:71: inlining call to filepathlite.FromSlash
+./load.go:370:52: inlining call to filepathlite.IsAbs
+./load.go:370:52: inlining call to stringslite.HasPrefix
+./glob.go:132:34: inlining call to isAlpha
+./glob.go:125:12: inlining call to isAlpha
+./glob.go:116:56: inlining call to swapCase
+./glob.go:116:71: inlining call to swapCase
+./glob.go:116:56: inlining call to isAlpha
+./glob.go:116:71: inlining call to isAlpha
+./glob.go:143:20: inlining call to newStateSet
+./glob.go:144:21: inlining call to newStateSet
+./glob.go:157:7: inlining call to globMatch.func1
+./glob.go:160:13: inlining call to (*stateSet).reset
+./glob.go:165:13: inlining call to (*stateSet).add
+./glob.go:167:11: inlining call to globMatch.func1
+./glob.go:176:16: inlining call to sameByte
+./glob.go:177:11: inlining call to globMatch.func1
+./glob.go:181:11: inlining call to globMatch.func1
+./glob.go:185:11: inlining call to globMatch.func1
+./glob.go:189:11: inlining call to globMatch.func1
+./glob.go:192:13: inlining call to (*stateSet).add
+./glob.go:194:11: inlining call to globMatch.func1
+./glob.go:197:10: inlining call to globMatch.func1
+./glob.go:205:16: inlining call to (*stateSet).has
+./glob.go:157:7: inlining call to (*stateSet).add
+./glob.go:167:11: inlining call to (*stateSet).add
+./glob.go:176:16: inlining call to isAlpha
+./glob.go:177:11: inlining call to (*stateSet).add
+./glob.go:181:11: inlining call to (*stateSet).add
+./glob.go:185:11: inlining call to (*stateSet).add
+./glob.go:189:11: inlining call to (*stateSet).add
+./glob.go:194:11: inlining call to (*stateSet).add
+./glob.go:197:10: inlining call to (*stateSet).add
+./glob.go:149:14: inlining call to (*stateSet).add
+./load.go:332:24: inlining call to strings.HasPrefix
+./load.go:336:39: inlining call to dirPrefix
+./load.go:336:29: inlining call to filepath.ToSlash
+./load.go:337:24: inlining call to strings.HasPrefix
+./load.go:341:48: inlining call to filepath.ToSlash
+./load.go:341:31: inlining call to strings.TrimSuffix
+./load.go:346:18: inlining call to isAbsPattern
+./load.go:349:22: inlining call to strings.HasSuffix
+./load.go:352:25: inlining call to filepath.ToSlash
+./load.go:357:30: inlining call to filepath.ToSlash
+./load.go:332:24: inlining call to stringslite.HasPrefix
+./load.go:336:39: inlining call to strings.LastIndexByte
+./load.go:336:29: inlining call to filepathlite.ToSlash
+./load.go:337:24: inlining call to stringslite.HasPrefix
+./load.go:341:48: inlining call to filepathlite.ToSlash
+./load.go:341:31: inlining call to stringslite.TrimSuffix
+./load.go:346:18: inlining call to strings.HasPrefix
+./load.go:346:18: inlining call to filepath.FromSlash
+./load.go:346:18: inlining call to filepath.IsAbs
+./load.go:349:22: inlining call to stringslite.HasSuffix
+./load.go:352:25: inlining call to filepathlite.ToSlash
+./load.go:357:30: inlining call to filepathlite.ToSlash
+./load.go:336:39: inlining call to bytealg.LastIndexByteString
+./load.go:341:31: inlining call to stringslite.HasSuffix
+./load.go:346:18: inlining call to stringslite.HasPrefix
+./load.go:346:18: inlining call to filepathlite.FromSlash
+./load.go:346:18: inlining call to filepathlite.IsAbs
+./load.go:346:18: inlining call to stringslite.HasPrefix
+./load.go:105:38: inlining call to filepath.Join
+./load.go:105:24: inlining call to readSmall
+./load.go:109:28: inlining call to strings.CutPrefix
+./load.go:114:31: inlining call to strings.CutPrefix
+./load.go:109:28: inlining call to stringslite.CutPrefix
+./load.go:114:31: inlining call to stringslite.CutPrefix
+./load.go:109:28: inlining call to stringslite.HasPrefix
+./load.go:114:31: inlining call to stringslite.HasPrefix
+./load.go:302:24: inlining call to strings.HasPrefix
+./load.go:304:24: inlining call to strings.HasPrefix
+./load.go:306:24: inlining call to strings.HasPrefix
+./load.go:317:23: inlining call to strings.HasSuffix
+./load.go:302:24: inlining call to stringslite.HasPrefix
+./load.go:304:24: inlining call to stringslite.HasPrefix
+./load.go:306:24: inlining call to stringslite.HasPrefix
+./load.go:317:23: inlining call to stringslite.HasSuffix
+./load.go:282:37: inlining call to Key.String
+./load.go:282:56: inlining call to errors.New
+./load.go:225:24: inlining call to (*parsed).entries
+./load.go:228:21: inlining call to slices.Clone[go.shape.[]github.com/git-bug/gitconfig.Entry,go.shape.struct { Key github.com/git-bug/gitconfig.Key; Value string; Implicit bool; Origin github.com/git-bug/gitconfig.Origin }]
+./load.go:257:16: inlining call to (*loader).fail
+./load.go:266:20: inlining call to filepath.IsAbs
+./load.go:270:19: inlining call to dirPrefix
+./load.go:273:48: inlining call to fmt.Errorf
+./load.go:257:16: inlining call to Key.String
+./load.go:257:16: inlining call to errors.New
+./load.go:266:20: inlining call to filepathlite.IsAbs
+./load.go:270:19: inlining call to strings.LastIndexByte
+./load.go:273:48: inlining call to errors.New
+./load.go:266:20: inlining call to stringslite.HasPrefix
+./load.go:270:19: inlining call to bytealg.LastIndexByteString
+./load.go:54:22: inlining call to filepath.Join
+./load.go:58:22: inlining call to filepath.Join
+./env.go:154:42: inlining call to (*repo).localConfig
+./env.go:157:68: inlining call to (*repo).localConfig
+./env.go:162:46: inlining call to (*repo).worktreeConfig
+./env.go:170:17: inlining call to (*loader).config
+./env.go:154:42: inlining call to filepath.Join
+./env.go:157:68: inlining call to filepath.Join
+./env.go:162:46: inlining call to filepath.Join
+./env.go:196:17: inlining call to (*loader).config
+./env.go:251:23: inlining call to filepath.Clean
+./env.go:221:25: inlining call to strings.HasSuffix
+./env.go:222:50: inlining call to strings.TrimSuffix
+./env.go:227:49: inlining call to strings.TrimSuffix
+./env.go:227:25: inlining call to strings.HasPrefix
+./env.go:233:36: inlining call to filepath.IsAbs
+./env.go:221:25: inlining call to stringslite.HasSuffix
+./env.go:222:50: inlining call to stringslite.TrimSuffix
+./env.go:227:49: inlining call to stringslite.TrimSuffix
+./env.go:227:25: inlining call to stringslite.HasPrefix
+./env.go:233:36: inlining call to filepathlite.IsAbs
+./env.go:222:50: inlining call to stringslite.HasSuffix
+./env.go:227:49: inlining call to stringslite.HasSuffix
+./env.go:233:36: inlining call to stringslite.HasPrefix
+./load.go:64:43: inlining call to (*repo).localConfig
+./load.go:69:47: inlining call to (*repo).localConfig
+./load.go:71:31: inlining call to (*repo).localConfig
+./load.go:73:47: inlining call to (*repo).localConfig
+./load.go:75:61: inlining call to (*repo).localConfig
+./load.go:75:35: inlining call to (*parsed).entries
+./load.go:75:84: inlining call to (*repo).localConfig
+./load.go:64:43: inlining call to filepath.Join
+./load.go:69:47: inlining call to filepath.Join
+./load.go:71:31: inlining call to filepath.Join
+./load.go:73:47: inlining call to filepath.Join
+./load.go:75:61: inlining call to filepath.Join
+./load.go:75:84: inlining call to filepath.Join
+./load.go:98:42: inlining call to filepath.Join
+./env.go:362:23: inlining call to (*repo).localConfig
+./env.go:369:26: inlining call to (*repo).worktreeConfig
+./env.go:373:22: inlining call to (*repo).localConfig
+./env.go:362:23: inlining call to filepath.Join
+./env.go:369:26: inlining call to filepath.Join
+./env.go:373:22: inlining call to filepath.Join
+./env.go:300:17: inlining call to (*loader).config
+./env.go:315:17: inlining call to (*loader).config
+./update.go:107:27: inlining call to fs.FileMode.IsRegular
+./update.go:114:27: inlining call to os.Readlink
+./update.go:118:21: inlining call to filepath.IsAbs
+./update.go:119:37: inlining call to filepath.Dir
+./update.go:119:24: inlining call to filepath.Join
+./update.go:118:21: inlining call to filepathlite.IsAbs
+./update.go:118:21: inlining call to stringslite.HasPrefix
+./update.go:59:16: inlining call to bytes.Equal
+./update.go:72:38: inlining call to fs.FileMode.Perm
+./update.go:72:23: inlining call to os.(*File).Chmod
+./update.go:76:22: inlining call to os.(*File).Close
+./update.go:36:14: inlining call to os.(*File).Close
+./update.go:79:58: inlining call to os.Rename
+./errors.go:93:18: inlining call to (*SyntaxError).Error
+./errors.go:127:85: inlining call to Key.String
+./errors.go:129:99: inlining call to Key.String
+./file.go:56:20: inlining call to bytes.Clone
+./file.go:67:20: inlining call to bytes.Clone
+./file.go:80:31: inlining call to (*parsed).entries
+./file.go:97:20: inlining call to (*File).entriesOf
+./file.go:102:54: inlining call to (*parsed).valueOf
+./file.go:105:78: inlining call to checkKey
+./file.go:107:80: inlining call to checkKey
+./file.go:97:20: inlining call to Key.sectionKey
+./file.go:97:20: inlining call to (*parsed).secOf
+./file.go:97:20: inlining call to (*parsed).nameOf
+./file.go:117:20: inlining call to (*File).entriesOf
+./file.go:119:81: inlining call to checkKey
+./file.go:127:39: inlining call to checkKey
+./file.go:117:20: inlining call to Key.sectionKey
+./file.go:117:20: inlining call to (*parsed).secOf
+./file.go:117:20: inlining call to (*parsed).nameOf
+./file.go:137:31: inlining call to (*File).entriesOf
+./file.go:138:32: inlining call to (*parsed).valueOf
+./file.go:137:31: inlining call to Key.sectionKey
+./file.go:137:31: inlining call to (*parsed).secOf
+./file.go:137:31: inlining call to (*parsed).nameOf
+./file.go:143:16: inlining call to filter
+./file.go:144:18: inlining call to checkKey
+./edit.go:134:9: can inline checkKey.1 with cost 231 as: func([]flatEntry, []flatEntry) bool { other := func literal; if !slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }](&slices..dict.Equal[[]github.com/git-bug/gitconfig.flatEntry,github.com/git-bug/gitconfig.flatEntry], filter(before, other), filter(after, other)) { return false }; got := filter(after, func literal); if len(got) != len(want) { return false }; for loop; return true }
+./file.go:144:33: inlining call to checkKey.1
+./file.go:143:16: inlining call to (*File).Add.func1.1
+./file.go:144:33: inlining call to filter
+./file.go:144:33: inlining call to filter
+./file.go:144:33: inlining call to slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }]
+./file.go:144:33: inlining call to filter
+./file.go:143:16: inlining call to flatEntry.is
+./edit.go:135:12: can inline checkKey.1.1 with cost 31 as: func(flatEntry) bool { return !flatEntry.is(e, k) }
+./file.go:144:33: inlining call to checkKey.1.1
+./file.go:144:33: inlining call to checkKey.1.1
+./edit.go:139:24: can inline checkKey.1.2 with cost 30 as: func(flatEntry) bool { return flatEntry.is(e, k) }
+./file.go:144:33: inlining call to checkKey.1.2
+./file.go:143:16: inlining call to Key.sectionKey
+./file.go:144:33: inlining call to flatEntry.is
+./file.go:144:33: inlining call to flatEntry.is
+./file.go:144:33: inlining call to flatEntry.is
+./file.go:144:33: inlining call to Key.sectionKey
+./file.go:144:33: inlining call to Key.sectionKey
+./file.go:144:33: inlining call to Key.sectionKey
+./file.go:143:60: inlining call to flatEntry.is
+./file.go:143:60: inlining call to Key.sectionKey
+./file.go:156:20: inlining call to (*File).entriesOf
+./file.go:161:52: inlining call to checkKey
+./file.go:156:20: inlining call to Key.sectionKey
+./file.go:156:20: inlining call to (*parsed).secOf
+./file.go:156:20: inlining call to (*parsed).nameOf
+./file.go:174:20: inlining call to (*File).entriesOf
+./file.go:178:54: inlining call to checkKey
+./file.go:174:20: inlining call to Key.sectionKey
+./file.go:174:20: inlining call to (*parsed).secOf
+./file.go:174:20: inlining call to (*parsed).nameOf
+./file.go:188:23: inlining call to (*File).checkOpen
+./file.go:191:22: inlining call to sectionArg
+./file.go:194:64: inlining call to lowerASCII
+./file.go:191:22: inlining call to validSection
+./file.go:191:22: inlining call to isKeyChar
+./file.go:191:22: inlining call to isAlpha
+./file.go:201:23: inlining call to (*File).checkOpen
+./file.go:204:22: inlining call to sectionArg
+./file.go:207:21: inlining call to validSubsection
+./file.go:210:55: inlining call to lowerASCII
+./file.go:204:22: inlining call to validSection
+./file.go:207:21: inlining call to strings.ContainsAny
+./file.go:204:22: inlining call to isKeyChar
+./file.go:204:22: inlining call to isAlpha
+./file.go:221:23: inlining call to (*File).checkOpen
+./file.go:224:22: inlining call to sectionArg
+./file.go:227:22: inlining call to sectionArg
+./file.go:230:38: inlining call to lowerASCII
+./file.go:231:64: inlining call to lowerASCII
+./file.go:224:22: inlining call to validSection
+./file.go:227:22: inlining call to validSection
+./file.go:224:22: inlining call to isKeyChar
+./file.go:227:22: inlining call to isKeyChar
+./file.go:224:22: inlining call to isAlpha
+./file.go:227:22: inlining call to isAlpha
+./file.go:241:23: inlining call to (*File).checkOpen
+./file.go:244:22: inlining call to sectionArg
+./file.go:248:22: inlining call to validSubsection
+./file.go:252:19: inlining call to lowerASCII
+./file.go:244:22: inlining call to validSection
+./file.go:248:22: inlining call to strings.ContainsAny
+./file.go:244:22: inlining call to isKeyChar
+./file.go:244:22: inlining call to isAlpha
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:67:6: inlining call to atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).CompareAndSwap
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:64:6: inlining call to atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Swap
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:61:6: inlining call to atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Store
+../../.asdf/installs/golang/1.27.1/go/src/sync/atomic/type.go:58:6: inlining call to atomic.(*Pointer[go.shape.struct { os.mu sync.Mutex; os.buf *[]uint8; os.nbuf int; os.bufp int }]).Load
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:20:6: inlining call to slices.Equal[go.shape.[]github.com/git-bug/gitconfig.flatEntry,go.shape.struct { github.com/git-bug/gitconfig.inSection bool; github.com/git-bug/gitconfig.sec github.com/git-bug/gitconfig.sectionKey; github.com/git-bug/gitconfig.name string; github.com/git-bug/gitconfig.value string; github.com/git-bug/gitconfig.implicit bool }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:355:6: inlining call to slices.Clone[go.shape.[]github.com/git-bug/gitconfig.Entry,go.shape.struct { Key github.com/git-bug/gitconfig.Key; Value string; Implicit bool; Origin github.com/git-bug/gitconfig.Origin }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/sort.go:30:6: inlining call to slices.SortFunc[go.shape.[]github.com/git-bug/gitconfig.splice,go.shape.struct { github.com/git-bug/gitconfig.start int; github.com/git-bug/gitconfig.end int; github.com/git-bug/gitconfig.text string }]
+../../.asdf/installs/golang/1.27.1/go/src/slices/slices.go:355:6: inlining call to slices.Clone[go.shape.[]string,go.shape.string]

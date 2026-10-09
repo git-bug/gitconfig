@@ -1,0 +1,25 @@
+{
+	"name": "baseline",
+	"benchs": [
+		"BenchmarkConfig",
+		"BenchmarkEnv/Load",
+		"BenchmarkEnv/LoadProtected",
+		"BenchmarkEnv/UpdateFile",
+		"BenchmarkEnv/UpdateFileUnchanged",
+		"BenchmarkParse",
+		"BenchmarkFile"
+	],
+	"git_commit": "74c4f677f7d380f117dd4e27dccad1b7bc042184",
+	"machine": {
+		"goos": "linux",
+		"goarch": "amd64",
+		"num_cpu": 12,
+		"physical_cores": 6,
+		"threads_per_core": 2,
+		"cpu": "AMD Ryzen 5 3600 6-Core Processor",
+		"cache_l1d": 32768,
+		"cache_l2": 524288,
+		"cache_l3": 16777216
+	},
+	"go_version": "go1.27.1"
+}
