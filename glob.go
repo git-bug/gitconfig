@@ -78,6 +78,8 @@ func compileGlob(p string) ([]globToken, bool) {
 			toks = append(toks, globToken{kind: globLit, c: c})
 			i++
 		}
+		// "**" is special only at the start of a segment: at the start of the
+		// pattern or after a '/'.
 		segStart = toks[len(toks)-1].kind == globLit && toks[len(toks)-1].c == '/'
 	}
 	return toks, true
@@ -93,7 +95,7 @@ func compileClass(p string, start, lastColon int) (globToken, int, bool) {
 		tok.negate = true
 		i++
 	}
-	first := true
+	first := true // a ']' first in the class is a literal ']'
 	for i < len(p) {
 		c := p[i]
 		if c == ']' && !first {
@@ -116,6 +118,7 @@ func compileClass(p string, start, lastColon int) (globToken, int, bool) {
 			i++
 			c = p[i]
 		}
+		// A range "a-z"; a '-' before the closing ']' is a literal '-'.
 		lo, hi := c, c
 		if i+2 < len(p) && p[i+1] == '-' && p[i+2] != ']' {
 			hi = p[i+2]
@@ -236,14 +239,18 @@ func globMatch(pattern, name string, fold bool) bool {
 			}
 		}
 		if len(next.list) == 0 {
+			// No position left: the rest of name cannot match.
 			return false
 		}
 		cur, next = next, cur
 	}
+	// Matched if the whole pattern is consumed.
 	return cur.has(2 * n)
 }
 
-// stateSet is a set of states, listed in the order they were added.
+// stateSet is a set of states, listed in the order they were added. reset
+// empties it in constant time by moving to a new generation instead of
+// clearing mark.
 type stateSet struct {
 	list []int32
 	mark []uint32 // mark[id] == gen if id is in the set

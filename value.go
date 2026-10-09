@@ -23,6 +23,7 @@ func parseBool(v string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// As in git, a numeric boolean must fit in 32 bits.
 	if n < math.MinInt32 || n > math.MaxInt32 {
 		return false, strconv.ErrRange
 	}
@@ -40,6 +41,8 @@ func parseInt(v string) (int64, error) {
 		s = s[1:]
 	}
 
+	// "0x" is a prefix only if a hex digit follows: "0x" alone is the octal
+	// number 0 followed by the invalid unit "x".
 	base := uint64(10)
 	switch {
 	case len(s) > 2 && s[0] == '0' && s[1]|0x20 == 'x' && digitValue(s[2]) < 16:
@@ -49,6 +52,8 @@ func parseInt(v string) (int64, error) {
 		base = 8
 	}
 
+	// On overflow, the scan goes on to find where the digits end: an
+	// invalid unit after them is reported before the range error.
 	var mag uint64
 	overflow := false
 	n := 0
@@ -64,6 +69,7 @@ func parseInt(v string) (int64, error) {
 		}
 	}
 	if n == 0 {
+		// No digits; git reports this as an invalid unit too.
 		return 0, errInvalidUnit
 	}
 
@@ -107,8 +113,8 @@ func digitValue(c byte) int {
 	return 36
 }
 
-// errPrefix and errUserHome are the reasons of a *ValueError for paths this
-// package cannot expand.
+// errPrefix, errNoHome and errUserHome are the reasons of a *ValueError for
+// paths this package cannot expand.
 var (
 	errPrefix   = errors.New("%(prefix)/ is not supported")
 	errNoHome   = errors.New("home directory unknown")
@@ -116,7 +122,7 @@ var (
 )
 
 // expandPath interprets a value as a path: "~" and "~/" are replaced by
-// home.
+// home. "~user/" and "%(prefix)/" are refused.
 func expandPath(v, home string) (string, error) {
 	switch {
 	case strings.HasPrefix(v, "%(prefix)/"):

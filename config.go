@@ -15,9 +15,8 @@ import (
 // treats it as absent. Keys are usually constants in the caller's code;
 // check them once with ParseKey, for example in a test.
 //
-// Methods returning a small result the caller owns return a slice (GetAll,
-// Subsections); methods walking the configuration return an iterator (All,
-// Section, Subsection).
+// When a key has several values, the last one wins, as in git: Get, Value,
+// Bool, Int and Path use it, GetAll returns them all.
 type Config struct {
 	entries []Entry
 	index   map[Key][]int // positions in entries, by key
@@ -27,7 +26,7 @@ type Config struct {
 	subsections map[string][]string
 }
 
-// newConfig returns a Config of entries, which it keeps.
+// newConfig returns a Config of entries. It takes ownership of the slice.
 func newConfig(entries []Entry) *Config {
 	c := &Config{
 		entries:     entries,
@@ -164,13 +163,17 @@ func (c *Config) Int(key string, def int64) (int64, error) {
 	return n, nil
 }
 
-// Path returns the last value for key as a path, as Entry.Path does with
-// home, usually Env.Home. If key is absent, def is expanded the same way. A
-// value or a def that cannot be expanded is a *ValueError (for def, its Entry
-// has the key, Value def and a zero Origin); the result is then def as given.
+// Path returns the last value for key expanded as a path by Entry.Path, or
+// def if key is absent, expanded the same way. home is the home directory,
+// usually Env.Home.
+//
+// A value that cannot be expanded is a *ValueError, and the result is then
+// def, unexpanded. This also holds for def itself: its error reports it
+// with an empty Origin.
 func (c *Config) Path(key, home, def string) (string, error) {
 	e, ok := c.Get(key)
 	if !ok {
+		// Expand def as an entry of key, so that an error names the key.
 		k, _ := parseKey(key)
 		e = Entry{Key: k, Value: def}
 	}
@@ -212,11 +215,11 @@ type Origin struct {
 	// Env.UpdateScope has that scope.
 	Scope Scope
 
-	// File is the file that holds the entry, possibly an included one, as
-	// git opened it: an include's relative path is joined to the including
-	// file's directory and not cleaned. "" for git -c. On Windows, the
-	// separators are those of the paths given, where git writes some
-	// paths with '/'.
+	// File is the file that holds the entry, possibly an included one, or
+	// "" for the command line. Like git, an included file's relative path
+	// is appended to the including file's directory without cleaning it:
+	// "/home/u/.config/git/../work.inc". On Windows the separators are
+	// kept as given, where git shows some paths with '/'.
 	File string
 
 	Line int // 1-based; 0 for git -c
@@ -236,9 +239,11 @@ func (e Entry) Bool() (bool, error) {
 	return b, nil
 }
 
-// Int interprets the value as git does, including the k, m and g suffixes.
-// An invalid unit, an out-of-range value or an implicit value is a
-// *ValueError.
+// Int interprets the value as git does: a decimal number, or octal with a
+// leading "0" and hexadecimal with a leading "0x" as in C (so "010" is 8),
+// optionally followed by a unit k, m or g (×1024, ×1024², ×1024³), case
+// ignored. An invalid number or unit, a value out of the int64 range or an
+// implicit value is a *ValueError.
 func (e Entry) Int() (int64, error) {
 	if e.Implicit {
 		return 0, e.error("int", nil)
@@ -251,10 +256,13 @@ func (e Entry) Int() (int64, error) {
 }
 
 // Path interprets the value as a path, as git does for `--type=path` and for
-// include paths: a leading "~/" is replaced by home, usually Env.Home. A "~/"
-// with an empty home, a leading "%(prefix)/" (the prefix of the git binary,
-// which depends on how it was built) and an implicit value are a
-// *ValueError. Config.Path does the same for a key.
+// include paths: a leading "~/", or a value of "~" alone, is replaced by
+// home, usually Env.Home. Other values are returned unchanged; relative
+// paths are not resolved.
+//
+// These are a *ValueError: "~" or "~/" with an empty home, "~user/" (not
+// supported), a leading "%(prefix)/" (the install prefix of the git binary,
+// unknown to this package) and an implicit value.
 func (e Entry) Path(home string) (string, error) {
 	if e.Implicit {
 		return "", e.error("path", nil)

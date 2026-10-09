@@ -6,9 +6,11 @@ import (
 
 // ParseKey parses "section.name" or "section.subsection.name" as git does:
 // the subsection is everything between the first and the last dot, section
-// and name are lowered. A key git rejects is ErrInvalidKey, including a
-// subsection containing a newline or a NUL byte. Reads treat an invalid key
-// as absent; only ParseKey and edits report it.
+// and name are lowered. A key git rejects is a *KeyError wrapping
+// ErrInvalidKey: the section must hold only letters, digits and '-', the
+// name must also start with a letter, and the subsection may hold anything
+// but a newline or a NUL byte. Reads treat an invalid key as absent; only
+// ParseKey and edits report it.
 func ParseKey(s string) (Key, error) {
 	k, ok := parseKey(s)
 	if !ok {
@@ -23,6 +25,8 @@ func ParseKey(s string) (Key, error) {
 // (".sub.name", "..name"): git reads it from a header [ "sub"] or [.], and
 // every entry read must have a key ParseKey accepts. Edits refuse it.
 func parseKey(s string) (Key, bool) {
+	// The subsection may itself contain dots: only the first and the last
+	// dot are separators.
 	first := strings.IndexByte(s, '.')
 	last := strings.LastIndexByte(s, '.')
 	if first < 0 {
@@ -34,6 +38,7 @@ func parseKey(s string) (Key, bool) {
 	}
 	k := Key{Name: lowerASCII(name)}
 	if first == last {
+		// No subsection: the section may not be empty (".name").
 		if !validSection(s[:first]) || first == 0 {
 			return Key{}, false
 		}
@@ -113,6 +118,8 @@ func validSubsection(s string) bool {
 // lowerASCII lowers ASCII letters only: the format is ASCII, and Unicode
 // folding would accept names git rejects.
 func lowerASCII(s string) string {
+	// Most names are already lower case: return s itself unless a letter
+	// needs lowering, so that the common case does not allocate.
 	for i := 0; i < len(s); i++ {
 		if 'A' <= s[i] && s[i] <= 'Z' {
 			b := []byte(s)

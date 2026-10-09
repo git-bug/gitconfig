@@ -221,9 +221,12 @@ func (p *parser) header() error {
 	}
 	nameEnd := i
 	if i == len(d) {
+		// git counts the end of the line it stopped at, and so reports the
+		// next line for an unterminated header or value.
 		return p.errorAt(p.line+1, "unterminated section header")
 	}
 
+	// sub reuses the parser's scratch buffer, and gives it back grown.
 	sub := p.buf[:0]
 	defer func() { p.buf = sub[:0] }()
 	hasSub := false
@@ -322,6 +325,8 @@ func (p *parser) entry() error {
 		j++
 	}
 	if j == len(d) || isNewline(d, j) {
+		// No '=': an implicit value. The entry ends with its name; the
+		// whitespace after it is an item of its own.
 		p.pos = i
 		p.addEntry(start, i, name, "").implicit = true
 		return nil
@@ -367,6 +372,7 @@ loop:
 		switch {
 		case c == '\\':
 			if i+1 == len(d) {
+				// A backslash ends the file. Outside quotes it is dropped.
 				if inQuote {
 					return "", 0, 0, 0, p.errorAt(p.line+lines+1, "unterminated quote")
 				}
@@ -405,6 +411,7 @@ loop:
 			buf = append(buf, c)
 			i++
 		case c == ' ' || c == '\t' || c == '\r':
+			// A CR here is a lone one: the loop stops at a CRLF.
 			if len(buf) > 0 && pending < 0 {
 				pending = i
 			}

@@ -66,9 +66,11 @@ type Env struct {
 	// GitDir is the repository's git directory, "" outside a repository.
 	// It must be absolute: includeIf "gitdir:" matches absolute paths, and
 	// a relative GitDir makes Load fail with ErrNotAbsolute rather than
-	// silently not match. The common directory and the worktree
-	// configuration are derived from it. includeIf "onbranch:" reads
-	// <GitDir>/HEAD when such a condition is met.
+	// silently not match. For a linked worktree, this is the worktree's
+	// own git directory (.git/worktrees/<name>): the shared config is found
+	// through its commondir file, and config.worktree is read from it.
+	// includeIf "onbranch:" reads <GitDir>/HEAD when such a condition is
+	// met.
 	GitDir string
 
 	// SystemConfig is the system configuration file, "" for none.
@@ -112,6 +114,10 @@ type CommandEntry struct {
 // Without a home directory, Home is "" and the global files are those git
 // reads then: the XDG file if XDG_CONFIG_HOME is set, no ~/.gitconfig.
 //
+// On Windows, SystemConfig is "" unless GIT_CONFIG_SYSTEM is set: the
+// system file lives in git's installation directory, which Discover does
+// not look for. Set the field to read it.
+//
 // It fails if a gitdir file is malformed (a *FileError), or if
 // GIT_CONFIG_NOSYSTEM, GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS is
 // malformed (an *EnvError), as git does.
@@ -122,16 +128,19 @@ func Discover(gitDir string) (Env, error) {
 	return discover(gitDir, osEnviron{})
 }
 
-// Load returns the effective configuration: every scope, in git's order of
-// precedence, with includes followed. This is what git itself uses. The view
-// of one scope is the entries with that Origin.Scope.
+// Load returns the effective configuration: system, global, local, worktree
+// and command-line scopes, in that order of precedence, with includes
+// followed. This is what git itself uses. Each entry's Origin.Scope tells
+// which scope it comes from. Missing files are skipped.
 //
-// Includes are followed as git does (depth limit 10, ErrIncludeDepth), with
-// two safety bounds git lacks: an include must be a regular file
-// (ErrNotRegular, so a FIFO or a device cannot hang or exhaust the process),
-// and one load reads at most 1000 files and 64 MiB in total (ErrLoadLimit, so
-// a file including itself many times cannot multiply the work exponentially).
-// These are reached only by files built to reach them.
+// Includes are followed as git does (include.path and includeIf with the
+// gitdir:, gitdir/i: and onbranch: conditions; hasconfig: is never
+// true), up to 10 levels deep (ErrIncludeDepth). Two safety bounds git lacks
+// are added: an include must be a regular file (ErrNotRegular, so a FIFO or a
+// device cannot hang or exhaust the process), and one load reads at most
+// 1000 files and 64 MiB in total (ErrLoadLimit, so a file including itself
+// many times cannot multiply the work exponentially). Real configurations
+// never come near these bounds.
 //
 // A global file that cannot be read for lack of permission is skipped, as
 // git does; LoadProtected skips such a system file too.
@@ -212,7 +221,8 @@ func (e Env) LoadProtected() (*Config, error) {
 // SafeDirectory reports whether dir is allowed by the safe.directory values
 // of LoadProtected, with git's matching rules ("*", a trailing "/*", an empty
 // value resetting the list). dir is the repository's working tree, or its
-// git directory for a bare repository, as git checks.
+// git directory for a bare repository, as git checks. It may be relative to
+// the working directory; symbolic links are resolved on both sides.
 //
 // The repository's configuration is not read. It does not check who owns
 // dir: git trusts a repository owned by the current user without consulting
@@ -395,9 +405,10 @@ func scopeFile(r *repo, s Scope) (string, Scope, error) {
 	return r.localConfig(), ScopeLocal, nil
 }
 
-// UpdateScope edits the file of scope s, as UpdateFile does; the File's
-// entries have the scope LoadScope gives them. Writes never go into an
-// included file.
+// UpdateScope edits the file of scope s, which WritePath gives, as
+// UpdateFile does; it fails with ErrNoScope where WritePath does. The
+// File's entries have the scope LoadScope gives them. Writes never go into
+// an included file.
 func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
 	path, scope, err := e.writeTarget(s)
 	if err != nil {

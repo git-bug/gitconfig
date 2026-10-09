@@ -13,8 +13,9 @@ import (
 	"syscall"
 )
 
-// Limits of one load (X3): git's include depth, and bounds on the work a
-// set of files built to multiply it can cause.
+// Limits of one load (requirement X3 of docs/REQUIREMENTS.md): git's
+// include depth, and bounds on the work a set of files built to multiply it
+// can cause.
 const (
 	maxIncludeDepth = 10
 	maxLoadFiles    = 1000
@@ -216,6 +217,7 @@ func (l *loader) config() *Config {
 // skipped, as git does for global files.
 func (l *loader) loadFile(path string, scope Scope, skipUnreadable bool) error {
 	err := l.load(path, scope, 0)
+	// Only path itself is skipped: an unreadable include of it still fails.
 	if skipUnreadable {
 		if fe, ok := errors.AsType[*FileError](err); ok && fe.Path == path && errors.Is(fe.Err, fs.ErrPermission) {
 			return nil
@@ -229,6 +231,7 @@ func (l *loader) load(path string, scope Scope, depth int) error {
 	if l.files > maxLoadFiles {
 		return &FileError{Path: path, Err: ErrLoadLimit}
 	}
+	// Read at most what remains of the byte budget of the load.
 	data, err := readConfigFile(path, maxLoadBytes-l.bytes)
 	if isMissing(err) {
 		return nil
@@ -244,8 +247,10 @@ func (l *loader) load(path string, scope Scope, depth int) error {
 	}
 	start := len(l.entries)
 	l.entries = pf.entries(scope, path, l.entries)
-	// Includes are spliced in place: take the entries of this file out
-	// and put them back one by one.
+	// The entries of an include go right after its include.path entry, so
+	// that later entries of this file take precedence over them. Take the
+	// entries of this file out of l.entries, which include appends to, and
+	// put them back one by one.
 	own := slices.Clone(l.entries[start:])
 	l.entries = l.entries[:start]
 	for _, e := range own {
@@ -278,6 +283,7 @@ func (l *loader) include(e Entry, from string, scope Scope, depth int) error {
 		return l.fail(from, e, "missing value for include.path")
 	}
 	if e.Value == "" {
+		// An empty path includes nothing.
 		return nil
 	}
 	path, err := e.Path(l.env.Home)
@@ -388,6 +394,8 @@ func (l *loader) gitdir(pattern, from string, fold bool) (bool, error) {
 		}
 		pattern = strings.TrimSuffix(filepath.ToSlash(l.env.Home), "/") + pattern[1:]
 	}
+	// Checked only now: a "./" pattern on the command line is an error even
+	// outside a repository.
 	if l.repo == nil {
 		return false, nil
 	}

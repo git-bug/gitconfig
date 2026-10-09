@@ -70,9 +70,10 @@ func (f *File) entriesOf(k Key) []int {
 	return idx
 }
 
-// flatEntry is an entry as the checks of an edit compare them: entries
-// before any header included, with the zero sec, origins left out. The keys
-// and sections edits compare them with always have a section name.
+// flatEntry is an entry as the checks of an edit compare them, origin left
+// out. Unlike Config, the checks include the entries before any header,
+// with the zero sec: an edit must not change them either. They never match
+// the edited key or section, which always has a section name.
 type flatEntry struct {
 	sec      sectionKey
 	name     string
@@ -135,6 +136,7 @@ func sameEntries(before, after *parsed, keepBefore, keepAfter func(flatEntry) bo
 // apply splices the bytes of the file, parses the result, and keeps it if
 // check accepts the entries before and after the edit.
 func (f *File) apply(key string, splices []splice, check func(before, after *parsed) bool) error {
+	// The splices never overlap; they are applied in order of position.
 	slices.SortFunc(splices, func(a, b splice) int { return a.start - b.start })
 	data := make([]byte, 0, len(f.data)+64)
 	at := 0
@@ -156,7 +158,8 @@ func (f *File) apply(key string, splices []splice, check func(before, after *par
 
 // checkKey returns a check that the entries of other keys are unchanged and
 // that k has the values want after the edit. Only the first implicitOK of
-// them may be implicit.
+// them may be implicit: those an edit keeps (Add) may be, a value it writes
+// never is.
 func checkKey(k Key, want []string, implicitOK int) func(before, after *parsed) bool {
 	return func(before, after *parsed) bool {
 		other := func(e flatEntry) bool { return !e.is(k) }
@@ -229,6 +232,8 @@ func (f *File) terminator() string {
 		// A blank line ends the value.
 		return "\n"
 	case last.kind == itemEntry && last.open == backslashEOF:
+		// The first newline completes the continuation, the blank line
+		// after it ends the value.
 		return "\n\n"
 	}
 	return "\n"
@@ -242,6 +247,10 @@ func formatEntry(name, value string) string {
 // quoteValue quotes and escapes a value as git writes it: in quotes if it
 // starts or ends with a space or contains '#', ';' or a CR; backslash,
 // double quote, tab and newline escaped.
+//
+// Unquoted, an edge space would be trimmed, '#' and ';' would start a
+// comment, and a CR could be trimmed or read as part of a CRLF. Tabs need
+// no quotes: they are escaped.
 func quoteValue(v string) string {
 	var sb strings.Builder
 	quote := strings.HasPrefix(v, " ") || strings.HasSuffix(v, " ") || strings.ContainsAny(v, "#;\r")
@@ -376,6 +385,8 @@ func (f *File) unsetEntry(i int, forward map[int]int, comments []int) splice {
 	sec := f.items[i].sec
 	sameHeader := func(it item) bool { return it.kind == itemHeader && f.secOf(it) == f.secs[sec] }
 
+	// Scan back to the previous entry or header of another section, b;
+	// headers tells whether a header of the entry's section was passed.
 	headers := false
 	b := i - 1
 	for ; b >= 0; b-- {
@@ -387,6 +398,7 @@ func (f *File) unsetEntry(i int, forward map[int]int, comments []int) splice {
 			headers = true
 		}
 	}
+	// Scan forward to the next entry or header of another section, fw.
 	fw := i + 1
 	for ; fw < len(f.items); fw++ {
 		if end, ok := forward[fw]; ok {
@@ -401,9 +413,11 @@ func (f *File) unsetEntry(i int, forward map[int]int, comments []int) splice {
 	}
 	forward[i] = fw
 	if !headers || fw < len(f.items) && f.items[fw].kind == itemEntry {
+		// The section keeps other entries: remove the entry's line only.
 		return f.removeEntry(i)
 	}
 
+	// The section's headers go too: remove from after b up to fw.
 	start, text := 0, ""
 	switch {
 	case b < 0:
@@ -437,6 +451,8 @@ func (f *File) insert(k Key, section, name, value string) splice {
 		return splice{len(f.data), len(f.data), f.terminator() + formatHeader(section, k.Subsection, k.HasSubsection) + "\n" + line}
 	}
 
+	// Insert after the last entry of the last matching section, or after
+	// its header if it has none.
 	h := headers[len(headers)-1]
 	last := h
 	for i := h + 1; i < len(f.items) && f.items[i].kind != itemHeader; i++ {
@@ -532,6 +548,10 @@ func (f *File) renameSection(name string, sk, to sectionKey, header string) erro
 	if len(headers) == 0 {
 		return &KeyError{Key: name, Err: ErrNotFound}
 	}
+	// A header that does not start its line follows another header on the
+	// same line ("[b] [a]") and is rewritten in place. A header that starts
+	// its line has the whole line rewritten, the other headers of sk on it
+	// included.
 	var splices []splice
 	done := -1 // headers up to this index are rewritten with their line
 	for _, h := range headers {

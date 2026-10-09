@@ -6,17 +6,16 @@ import (
 
 // File is the lossless, editable form of one configuration file. Edits
 // change only the lines `git config` would change, and produce the same
-// bytes; everything else is kept byte for byte.
-//
-// A File is mutable and must not be used by several goroutines at once. Use
-// Config to take an immutable snapshot. The zero value is an empty file.
-//
-// A File knows the scope it was opened for (Env.UpdateScope); a File from
-// Parse or Env.UpdateFile has ScopeFile.
+// bytes; everything else (comments, blank lines, indentation) is kept byte
+// for byte.
 //
 // A File comes from Parse, for content that is not on disk (tests, in-memory
 // repositories, a .gitmodules blob), or from Env.UpdateScope and
-// Env.UpdateFile, to edit a file on disk.
+// Env.UpdateFile, to edit a file on disk. The zero value is an empty file.
+//
+// A File is mutable and must not be used by several goroutines at once. Use
+// Config to take an immutable snapshot; its entries have the scope the File
+// was opened for by Env.UpdateScope, and ScopeFile otherwise.
 //
 // Edits find keys, sections and subsections as Config does: section and name
 // case-insensitive, subsection exact, a legacy header [a.B] holding
@@ -25,11 +24,14 @@ import (
 // lowered, and it removes or renames a section only if the header is
 // spelled as given.
 //
-// Edits fail with ErrInvalidKey if a key or section name is one git rejects,
-// or a key with an empty section (".sub.name", which git reads from a
-// header [ "sub"]), and with ErrInvalidValue if a value contains a NUL
-// byte. Removing something that is absent is not an error: the methods
-// report what they removed.
+// A new key goes at the end of the last section that holds its section or
+// subsection, or into a new section at the end of the file, as git does.
+//
+// Edits return a *KeyError wrapping ErrInvalidKey if a key or section name
+// is one git rejects, or a key has an empty section (".sub.name", which git
+// reads from a header [ "sub"]), and wrapping ErrInvalidValue if a value
+// contains a NUL byte. Removing something that is absent is not an error:
+// the methods report what they removed.
 //
 // An edit cannot inject anything: whatever the key, subsection and value,
 // the edited file parses to the entries before the edit with exactly that
@@ -54,6 +56,8 @@ type File struct {
 // data may come from anyone (a .gitmodules blob from a remote): Parse never
 // panics, and its time and memory are linear in len(data).
 func Parse(name string, data []byte) (*File, error) {
+	// The File keeps data, which its items index: the caller must stay free
+	// to reuse its slice.
 	data = bytes.Clone(data)
 	p, err := parse(name, data)
 	if err != nil {
@@ -111,7 +115,8 @@ func (f *File) Set(key, value string) error {
 }
 
 // ReplaceAll replaces all values of key with a single value, or adds it if
-// key is absent, like `git config --replace-all <key> <value>`.
+// key is absent, like `git config --replace-all <key> <value>`. The new
+// value takes the place of the last old one.
 func (f *File) ReplaceAll(key, value string) error {
 	k, section, name, err := f.prepareValue(key, value)
 	if err != nil {
@@ -131,6 +136,7 @@ func (f *File) ReplaceAll(key, value string) error {
 }
 
 // Add adds a value to key, keeping existing ones, like `git config --add`.
+// The new value is read last, so it is the one Config.Get returns.
 func (f *File) Add(key, value string) error {
 	k, section, name, err := f.prepareValue(key, value)
 	if err != nil {

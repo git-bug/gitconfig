@@ -64,9 +64,11 @@ func updateFile(path string, scope Scope, fn func(*File) error) (err error) {
 		return err
 	}
 	if bytes.Equal(f.data, data) {
+		// Unchanged: the deferred cleanup drops the lock.
 		return nil
 	}
 
+	// Windows has no permission bits to copy.
 	if exists && runtime.GOOS != "windows" {
 		fi, err := os.Stat(target)
 		if err != nil {

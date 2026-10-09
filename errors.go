@@ -90,6 +90,7 @@ type FileError struct {
 }
 
 func (e *FileError) Error() string {
+	// A syntax error already names the file: don't repeat it.
 	if se, ok := errors.AsType[*SyntaxError](e.Err); ok && se.File == e.Path {
 		return se.Error()
 	}

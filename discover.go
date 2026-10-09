@@ -33,6 +33,7 @@ func discover(gitDir string, env environ) (Env, error) {
 	}
 
 	if g, ok := env.Lookup("GIT_CONFIG_GLOBAL"); ok {
+		// Set but empty: no global file at all.
 		if g != "" {
 			e.GlobalConfig = []string{g}
 		}
@@ -62,6 +63,9 @@ func discover(gitDir string, env environ) (Env, error) {
 	case runtime.GOOS != "windows":
 		e.SystemConfig = "/etc/gitconfig"
 	}
+	// On Windows the system file is under git's installation directory,
+	// which this package cannot know: there is none unless
+	// GIT_CONFIG_SYSTEM names it.
 
 	cmd, err := countEntries(env)
 	if err != nil {
@@ -88,6 +92,8 @@ func resolveGitDir(gitDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A directory is the git directory itself. One that does not exist (yet)
+	// is not an error here: loading finds no files in it.
 	fi, err := os.Stat(gitDir)
 	if err != nil || !fi.Mode().IsRegular() {
 		return gitDir, nil
@@ -160,6 +166,7 @@ func parseParameters(s string) ([]CommandEntry, error) {
 		}
 		var c CommandEntry
 		if v, ok := strings.CutPrefix(rest, "="); ok {
+			// The current form: 'key'='value', or 'key'= for no value.
 			c.Key = key
 			if v == "" || isParamSpace(v[0]) {
 				c.Implicit = true
@@ -171,6 +178,7 @@ func parseParameters(s string) ([]CommandEntry, error) {
 				}
 			}
 		} else if k, v, ok := strings.Cut(key, "="); ok {
+			// The older form: 'key=value'.
 			c.Key, c.Value = k, v
 		} else {
 			c.Key, c.Implicit = key, true
