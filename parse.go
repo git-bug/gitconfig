@@ -22,16 +22,17 @@ const (
 
 // item is one piece of the file. It holds no pointer, so that a large file
 // costs the garbage collector nothing to scan: the decoded data of headers
-// and entries is in the tables of parsed.
+// and entries is in the tables of parsed. Offsets are 32-bit, as a file is
+// at most maxLoadBytes: an item is 24 bytes.
 type item struct {
 	kind     itemKind
 	implicit bool    // entries only: no '='
 	open     openEnd // entries only
 	sec      int32   // the section a header opens or an entry is in: index in parsed.secs, 0 before any header
 	text     int32   // entries only: index in parsed.texts
-	start    int     // bytes of the item: data[start:end]
-	end      int
-	line     int // line of start, 1-based
+	start    int32   // bytes of the item: data[start:end]
+	end      int32
+	line     int32 // line of start, 1-based
 }
 
 // entryText is the key name and the value of an entry.
@@ -66,7 +67,7 @@ func (p *parsed) entries(scope Scope, file string, out []Entry) []Entry {
 			Key:      Key{Section: sec.section, Subsection: sec.subsection, HasSubsection: sec.hasSub, Name: t.name},
 			Value:    t.value,
 			Implicit: it.implicit,
-			Origin:   Origin{Scope: scope, File: file, Line: it.line},
+			Origin:   Origin{Scope: scope, File: file, Line: int(it.line)},
 		})
 	}
 	return out
@@ -91,6 +92,16 @@ type parser struct {
 	pos  int
 	line int
 
+	// budget is what remains of the entries and distinct header spellings
+	// allowed, shared by the files of a load.
+	budget *int
+
+	// emit, if set, receives the entries of the file, those before any
+	// header left out, and no item is kept: the parse of a load. An error
+	// it returns stops the parse and is returned as is.
+	emit  func(Entry) error
+	scope Scope // of the entries given to emit
+
 	sec      int32 // current section
 	secIndex map[sectionKey]int32
 	headers  map[string]int32  // the section of each header, by its bytes
@@ -98,38 +109,91 @@ type parser struct {
 	buf      []byte            // scratch for values and subsections
 }
 
-// parse splits data into items, or returns the *SyntaxError git would
-// report.
-func parse(name string, data []byte) (parsed, error) {
-	p := &parser{name: name, data: data, line: 1, secIndex: make(map[sectionKey]int32), headers: make(map[string]int32), names: make(map[string]string)}
-	p.items = make([]item, 0, 2*bytes.Count(data, []byte{'\n'})+4)
-	p.secs = []sectionKey{{}}
+func newParser(name string, data []byte, budget *int) *parser {
+	return &parser{
+		name: name, data: data, line: 1, budget: budget,
+		parsed:   parsed{secs: []sectionKey{{}}},
+		secIndex: make(map[sectionKey]int32),
+		headers:  make(map[string]int32),
+		names:    make(map[string]string),
+	}
+}
+
+// parseFile splits data into items, or returns the *SyntaxError git would
+// report. Beyond the limits of one file, it returns ErrLoadLimit.
+func parseFile(name string, data []byte) (parsed, error) {
+	if len(data) > maxLoadBytes {
+		return parsed{}, ErrLoadLimit
+	}
+	p := newParser(name, data, new(maxLoadEntries))
+	p.items = make([]item, 0, min(2*bytes.Count(data, []byte{'\n'})+4, maxFileItems))
 	if err := p.run(); err != nil {
 		return parsed{}, err
 	}
 	return p.parsed, nil
 }
 
+// parseEntries gives the entries of data to emit, in order, with scope and
+// name as their origin, without keeping the items of the file. It returns
+// the *SyntaxError git would report, ErrLoadLimit once budget is spent, or
+// the error of emit.
+//
+// Like git, it stops at the first error: entries before it have been given
+// to emit, and an include they hold has been followed.
+func parseEntries(name string, data []byte, scope Scope, budget *int, emit func(Entry) error) error {
+	p := newParser(name, data, budget)
+	p.emit, p.scope = emit, scope
+	return p.run()
+}
+
 func (p *parser) errorAt(line int, msg string) error {
 	return &SyntaxError{File: p.name, Line: line, Msg: msg}
 }
 
-func (p *parser) add(kind itemKind, start, end int) *item {
-	p.items = append(p.items, item{kind: kind, start: start, end: end, line: p.line, sec: p.sec})
-	return &p.items[len(p.items)-1]
+// spend takes one from the budget.
+func (p *parser) spend() error {
+	if *p.budget <= 0 {
+		return ErrLoadLimit
+	}
+	*p.budget--
+	return nil
 }
 
-// addEntry adds an entry item.
-func (p *parser) addEntry(start, end int, name []byte, value string) *item {
-	it := p.add(itemEntry, start, end)
+// add adds an item, unless the parse keeps no item.
+func (p *parser) add(kind itemKind, start, end int) {
+	if p.emit == nil {
+		p.items = append(p.items, item{kind: kind, start: int32(start), end: int32(end), line: int32(p.line), sec: p.sec})
+	}
+}
+
+// addEntry adds an entry item, or gives the entry to emit.
+func (p *parser) addEntry(start, end int, name []byte, value string, implicit bool, open openEnd) error {
+	if err := p.spend(); err != nil {
+		return err
+	}
 	n, ok := p.names[string(name)]
 	if !ok {
 		n = lowerASCII(string(name))
 		p.names[string(name)] = n
 	}
-	it.text = int32(len(p.texts))
+	if p.emit != nil {
+		if p.sec == 0 {
+			return nil
+		}
+		sec := p.secs[p.sec]
+		return p.emit(Entry{
+			Key:      Key{Section: sec.section, Subsection: sec.subsection, HasSubsection: sec.hasSub, Name: n},
+			Value:    value,
+			Implicit: implicit,
+			Origin:   Origin{Scope: p.scope, File: p.name, Line: p.line},
+		})
+	}
+	p.items = append(p.items, item{
+		kind: itemEntry, implicit: implicit, open: open, sec: p.sec, text: int32(len(p.texts)),
+		start: int32(start), end: int32(end), line: int32(p.line),
+	})
 	p.texts = append(p.texts, entryText{n, value})
-	return it
+	return nil
 }
 
 // section returns the index of sec in p.secs, adding it if absent.
@@ -175,6 +239,10 @@ func (p *parser) run() error {
 		p.pos = len(bom)
 	}
 	for p.pos < len(d) {
+		// Each turn adds at most one item.
+		if len(p.items) >= maxFileItems {
+			return ErrLoadLimit
+		}
 		start := p.pos
 		c := d[start]
 		switch {
@@ -286,6 +354,9 @@ func (p *parser) header() error {
 	// repeat their headers.
 	sec, ok := p.headers[string(d[start:i])]
 	if !ok {
+		if err := p.spend(); err != nil {
+			return err
+		}
 		sec = p.section(headerKey(lowerASCII(string(d[start+1:nameEnd])), sub, hasSub))
 		p.headers[string(d[start:i])] = sec
 	}
@@ -328,8 +399,7 @@ func (p *parser) entry() error {
 		// No '=': an implicit value. The entry ends with its name; the
 		// whitespace after it is an item of its own.
 		p.pos = i
-		p.addEntry(start, i, name, "").implicit = true
-		return nil
+		return p.addEntry(start, i, name, "", true, closed)
 	}
 	if d[j] != '=' {
 		return p.errorAt(p.line, "invalid key")
@@ -340,7 +410,9 @@ func (p *parser) entry() error {
 		return err
 	}
 	p.pos = end
-	p.addEntry(start, end, name, value).open = open
+	if err := p.addEntry(start, end, name, value, false, open); err != nil {
+		return err
+	}
 	p.line += lines
 	return nil
 }

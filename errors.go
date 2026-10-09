@@ -10,7 +10,7 @@ import (
 // the context with errors.As:
 //
 //   - ParseKey and File edits return a *KeyError.
-//   - Parse returns a *SyntaxError.
+//   - Parse returns a *SyntaxError, or a *FileError for load limits.
 //   - Typed reads (Config.Bool, Entry.Int, ...) return a *ValueError.
 //   - Env methods and Discover return a *FileError for anything about a
 //     file (reading, a *SyntaxError, includes, load limits, locking,
@@ -47,7 +47,11 @@ var (
 	ErrIncludeDepth = errors.New("gitconfig: exceeded maximum include depth")
 
 	// ErrLoadLimit is returned when one load would read more than 1000
-	// files or 64 MiB in total.
+	// files, 16 MiB, or 2²⁰ entries and distinct section headers in total
+	// from files (entries of Env.Command are not counted).
+	// Parse applies the byte and entry limits to its one file, and keeps at
+	// most 2²² pieces of it (blank lines, comments, ...); an edit that would
+	// take a File beyond these limits fails with it.
 	ErrLoadLimit = errors.New("gitconfig: exceeded load limits")
 
 	// ErrNotRegular is returned when a configuration file or an include is

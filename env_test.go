@@ -387,6 +387,17 @@ func TestEnvIncludes(t *testing.T) {
 		assert.Equal(t, 2, se.Line)
 	})
 
+	t.Run("an include fails before a later syntax error", func(t *testing.T) {
+		// As git 2.47.3: includes are followed as the file is read.
+		dir, _, err := load(t, map[string]string{
+			"main": "[include]\n\tpath = ./inc\n[b]\n\tk = \"unterminated\n",
+			"inc":  "[a]\n\tk = \"unterminated\n",
+		})
+		var se *gitconfig.SyntaxError
+		require.ErrorAs(t, err, &se)
+		assert.Equal(t, dir+sep+"./inc", se.File)
+	})
+
 	t.Run("directory", func(t *testing.T) {
 		dir := tempDir(t)
 		writeFile(t, filepath.Join(dir, "main"), "[include]\n\tpath = d\n")
@@ -436,11 +447,53 @@ func TestEnvLoadLimits(t *testing.T) {
 
 	t.Run("total size", func(t *testing.T) {
 		dir := tempDir(t)
-		writeFile(t, filepath.Join(dir, "big"), strings.Repeat("# padding padding padding padding\n", (8<<20)/34))
+		writeFile(t, filepath.Join(dir, "big"), strings.Repeat("# padding padding padding padding\n", (2<<20)/34))
 		writeFile(t, filepath.Join(dir, "main"), strings.Repeat("[include]\n\tpath = big\n", 9))
 
 		_, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
 		require.ErrorIs(t, err, gitconfig.ErrLoadLimit)
+	})
+
+	// The entry limit bounds memory: one entry costs a hundred times its
+	// two bytes.
+	limitErr := func(t *testing.T, files map[string]string) {
+		t.Helper()
+		dir := tempDir(t)
+		for name, content := range files {
+			writeFile(t, filepath.Join(dir, name), content)
+		}
+		_, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
+		require.ErrorIs(t, err, gitconfig.ErrLoadLimit)
+		var fe *gitconfig.FileError
+		require.ErrorAs(t, err, &fe)
+	}
+
+	t.Run("entries", func(t *testing.T) {
+		limitErr(t, map[string]string{"main": "[a]\n" + strings.Repeat("k\n", 1<<20+1)})
+	})
+
+	t.Run("entries across includes", func(t *testing.T) {
+		// 600 reads of 2000 entries, under the file and byte limits.
+		limitErr(t, map[string]string{
+			"main": strings.Repeat("[include]\n\tpath = inc\n", 600),
+			"inc":  "[a]\n" + strings.Repeat("k\n", 2000),
+		})
+	})
+
+	t.Run("distinct headers", func(t *testing.T) {
+		var sb strings.Builder
+		for i := range 1<<20 + 1 {
+			fmt.Fprintf(&sb, "[a \"%x\"]", i)
+		}
+		limitErr(t, map[string]string{"main": sb.String()})
+	})
+
+	t.Run("repeated headers are free", func(t *testing.T) {
+		dir := tempDir(t)
+		writeFile(t, filepath.Join(dir, "main"), strings.Repeat("[a]", 1<<20+1)+"k\n")
+		c, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
+		require.NoError(t, err)
+		assert.Len(t, c.GetAll("a.k"), 1)
 	})
 
 	t.Run("under the limits", func(t *testing.T) {
@@ -475,6 +528,58 @@ func TestEnvLoadLimits(t *testing.T) {
 		_, err := gitconfig.Env{GitDir: filepath.Join(dir, ".git"), GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
 		require.NoError(t, err)
 	})
+}
+
+// TestLoadMemory checks the memory one entry costs, which the entry limit
+// multiplies: what a Config keeps, and what loading it allocates in all, a
+// bound on its peak. Distinct keys are the costliest: each has its own
+// place in the index of the Config.
+func TestLoadMemory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("allocates a few hundred MB")
+	}
+	const n = 1 << 17
+	var sb strings.Builder
+	sb.WriteString("[a]\n")
+	for i := range n {
+		fmt.Fprintf(&sb, "k%x\n", i)
+	}
+	data := sb.String()
+	dir := tempDir(t)
+	writeFile(t, filepath.Join(dir, "config"), data)
+
+	measure := func(load func() (*gitconfig.Config, error)) (live, total uint64) {
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		c, err := load()
+		require.NoError(t, err)
+		runtime.GC()
+		runtime.ReadMemStats(&after)
+		runtime.KeepAlive(c)
+		return (after.HeapAlloc - before.HeapAlloc) / n, (after.TotalAlloc - before.TotalAlloc) / n
+	}
+	for _, tc := range []struct {
+		name        string
+		load        func() (*gitconfig.Config, error)
+		live, total uint64 // ceilings, in bytes per entry
+	}{
+		{"Load", gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "config")}}.Load, 400, 1700},
+		{"Parse", func() (*gitconfig.Config, error) {
+			f, err := gitconfig.Parse("f", []byte(data))
+			if err != nil {
+				return nil, err
+			}
+			return f.Config(), nil
+		}, 400, 1700},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live, total := measure(tc.load)
+			t.Logf("%d B live, %d B allocated per entry", live, total)
+			assert.LessOrEqual(t, live, tc.live, "kept per entry")
+			assert.LessOrEqual(t, total, tc.total, "allocated per entry")
+		})
+	}
 }
 
 func TestEnvIncludeIf(t *testing.T) {

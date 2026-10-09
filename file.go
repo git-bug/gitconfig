@@ -2,6 +2,7 @@ package gitconfig
 
 import (
 	"bytes"
+	"errors"
 )
 
 // File is the lossless, editable form of one configuration file. Edits
@@ -30,8 +31,9 @@ import (
 // Edits return a *KeyError wrapping ErrInvalidKey if a key or section name
 // is one git rejects, or a key has an empty section (".sub.name", which git
 // reads from a header [ "sub"]), and wrapping ErrInvalidValue if a value
-// contains a NUL byte. Removing something that is absent is not an error:
-// the methods report what they removed.
+// contains a NUL byte. An edit that would take the file beyond the limits
+// of Parse is a *KeyError wrapping ErrLoadLimit. Removing something that is
+// absent is not an error: the methods report what they removed.
 //
 // An edit cannot inject anything: whatever the key, subsection and value,
 // the edited file parses to the entries before the edit with exactly that
@@ -54,12 +56,21 @@ type File struct {
 // Config.
 //
 // data may come from anyone (a .gitmodules blob from a remote): Parse never
-// panics, and its time and memory are linear in len(data).
+// panics, and its time and memory are linear in len(data). It applies the
+// limits of a load to its one file: more than 16 MiB, more than 2²⁰ entries
+// and distinct section headers, or more than 2²² pieces (blank lines,
+// comments, ...) is a *FileError wrapping ErrLoadLimit.
 func Parse(name string, data []byte) (*File, error) {
+	if len(data) > maxLoadBytes {
+		return nil, &FileError{Path: name, Err: ErrLoadLimit}
+	}
 	// The File keeps data, which its items index: the caller must stay free
 	// to reuse its slice.
 	data = bytes.Clone(data)
-	p, err := parse(name, data)
+	p, err := parseFile(name, data)
+	if errors.Is(err, ErrLoadLimit) {
+		return nil, &FileError{Path: name, Err: err}
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -127,8 +127,14 @@ func FuzzParseKey(f *testing.F) {
 		require.NoError(t, err)
 		require.Equal(t, k, k2)
 
-		// Any valid key can be written and read back.
 		var file gitconfig.File
+		if k.Section == "" {
+			// Readable but not writable: edits refuse an empty section.
+			require.ErrorIs(t, file.Set(s, "v"), gitconfig.ErrInvalidKey)
+			return
+		}
+
+		// Any other valid key can be written and read back.
 		require.NoError(t, file.Set(s, "v"))
 		reparsed, err := gitconfig.Parse("f", file.Bytes())
 		require.NoError(t, err)

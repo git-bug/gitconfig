@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -126,6 +127,60 @@ func TestParseSyntaxError(t *testing.T) {
 			assert.Equal(t, tc.line, se.Line)
 		})
 	}
+}
+
+func TestParseLimits(t *testing.T) {
+	var headers strings.Builder
+	for i := range 1 << 20 {
+		fmt.Fprintf(&headers, "[a \"%x\"]", i)
+	}
+	for _, tc := range []struct{ name, data string }{
+		{"size", strings.Repeat("#\n", 8<<20+1)},
+		{"entries", "[a]\n" + strings.Repeat("k\n", 1<<20)},
+		{"distinct headers", headers.String() + "\n\tk\n"},
+		{"items", strings.Repeat("\n", 4<<20+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := gitconfig.Parse("f", []byte(tc.data))
+			require.ErrorIs(t, err, gitconfig.ErrLoadLimit)
+			var fe *gitconfig.FileError
+			require.ErrorAs(t, err, &fe)
+			assert.Equal(t, "f", fe.Path)
+		})
+	}
+
+	t.Run("at the limits", func(t *testing.T) {
+		_, err := gitconfig.Parse("f", []byte("[a]\n"+strings.Repeat("k\n", 1<<20-1)))
+		require.NoError(t, err)
+		_, err = gitconfig.Parse("f", []byte(strings.Repeat("\n", 4<<20)))
+		require.NoError(t, err)
+	})
+
+	t.Run("an edit stays within the limits", func(t *testing.T) {
+		data := "[a]\n" + strings.Repeat("k\n", 1<<20-1)
+		f := mustParse(t, data)
+		err := f.Add("a.k", "v")
+		require.ErrorIs(t, err, gitconfig.ErrLoadLimit)
+		var ke *gitconfig.KeyError
+		require.ErrorAs(t, err, &ke)
+		assert.Equal(t, data, string(f.Bytes()))
+	})
+
+	t.Run("a rename is bounded before it is built", func(t *testing.T) {
+		// 192 KiB of headers renamed to a 1 KiB name would be 64 MiB.
+		data := strings.Repeat("[a]", 1<<16)
+		f := mustParse(t, data)
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		err := f.RenameSection("a", strings.Repeat("b", 1024))
+		runtime.ReadMemStats(&after)
+		require.ErrorIs(t, err, gitconfig.ErrLoadLimit)
+		var ke *gitconfig.KeyError
+		require.ErrorAs(t, err, &ke)
+		assert.Equal(t, data, string(f.Bytes()))
+		assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4<<20))
+	})
 }
 
 var roundTripCases = []string{

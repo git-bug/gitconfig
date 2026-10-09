@@ -8,18 +8,25 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"syscall"
 )
 
 // Limits of one load (requirement X3 of docs/REQUIREMENTS.md): git's
-// include depth, and bounds on the work a set of files built to multiply it
-// can cause.
+// include depth, and bounds on the work and memory a set of files built to
+// multiply them can cause. Parse and edits apply the byte and entry limits
+// to their one file.
+//
+// Memory follows the entries, not the bytes: one entry ("k\n") can cost
+// a hundred times its size. Distinct section headers count as entries, as
+// the parser keeps each one. A parsed File also keeps every piece of the
+// file (blank lines, comments, ...), at most maxFileItems of them.
 const (
 	maxIncludeDepth = 10
 	maxLoadFiles    = 1000
-	maxLoadBytes    = 64 << 20
+	maxLoadBytes    = 16 << 20
+	maxLoadEntries  = 1 << 20
+	maxFileItems    = 4 << 20
 )
 
 // repo is the repository of an Env.
@@ -82,20 +89,27 @@ func (r *repo) worktreeConfigEnabled() (bool, error) {
 	if err != nil {
 		return false, &FileError{Path: r.localConfig(), Err: err}
 	}
-	p, err := parse(r.localConfig(), data)
+	var entries []Entry
+	err = parseEntries(r.localConfig(), data, ScopeLocal, new(maxLoadEntries), func(e Entry) error {
+		if e.Key == worktreeConfigKey {
+			entries = append(entries, e)
+		}
+		return nil
+	})
 	if err != nil {
 		return false, &FileError{Path: r.localConfig(), Err: err}
 	}
-	return worktreeConfigIn(p.entries(ScopeLocal, r.localConfig(), nil), r.localConfig())
+	return worktreeConfigIn(entries, r.localConfig())
 }
+
+var worktreeConfigKey = Key{Section: "extensions", Name: "worktreeconfig"}
 
 // worktreeConfigIn returns the last value of extensions.worktreeConfig in
 // the entries of file path: git does not take it from included files.
 func worktreeConfigIn(entries []Entry, path string) (bool, error) {
-	k := Key{Section: "extensions", Name: "worktreeconfig"}
 	enabled := false
 	for _, e := range entries {
-		if e.Key != k || e.Origin.File != path {
+		if e.Key != worktreeConfigKey || e.Origin.File != path {
 			continue
 		}
 		b, err := e.Bool()
@@ -185,6 +199,7 @@ type loader struct {
 
 	files   int
 	bytes   int64
+	budget  int // entries and distinct headers that may still be read
 	entries []Entry
 
 	branch     string
@@ -205,7 +220,7 @@ func (e Env) newLoader() (*loader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &loader{env: e, repo: r}, nil
+	return &loader{env: e, repo: r, budget: maxLoadEntries}, nil
 }
 
 func (l *loader) config() *Config {
@@ -241,23 +256,21 @@ func (l *loader) load(path string, scope Scope, depth int) error {
 	}
 	l.bytes += int64(len(data))
 
-	pf, err := parse(path, data)
+	// The entries of an include go right after its include.path entry, so
+	// that later entries of this file take precedence over them: includes
+	// are followed as the file is parsed. As in git, an error in an include
+	// is reported before a syntax error further down this file.
+	var includeErr error
+	err = parseEntries(path, data, scope, &l.budget, func(e Entry) error {
+		l.entries = append(l.entries, e)
+		includeErr = l.include(e, path, scope, depth)
+		return includeErr
+	})
+	if includeErr != nil {
+		return includeErr
+	}
 	if err != nil {
 		return &FileError{Path: path, Err: err}
-	}
-	start := len(l.entries)
-	l.entries = pf.entries(scope, path, l.entries)
-	// The entries of an include go right after its include.path entry, so
-	// that later entries of this file take precedence over them. Take the
-	// entries of this file out of l.entries, which include appends to, and
-	// put them back one by one.
-	own := slices.Clone(l.entries[start:])
-	l.entries = l.entries[:start]
-	for _, e := range own {
-		l.entries = append(l.entries, e)
-		if err := l.include(e, path, scope, depth); err != nil {
-			return err
-		}
 	}
 	return nil
 }

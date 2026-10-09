@@ -54,7 +54,7 @@ func updateFile(path string, scope Scope, fn func(*File) error) (err error) {
 	case err != nil:
 		return &FileError{Path: path, Err: err}
 	}
-	p, err := parse(path, data)
+	p, err := parseFile(path, data)
 	if err != nil {
 		return &FileError{Path: path, Err: err}
 	}
