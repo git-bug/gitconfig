@@ -41,13 +41,26 @@ func (e Env) repo() (*repo, error) {
 	case err == nil:
 		dir := strings.TrimRight(string(data), "\r\n")
 		if !filepath.IsAbs(dir) {
-			dir = filepath.Join(e.GitDir, dir)
+			if dir, err = joinReal(e.GitDir, dir); err != nil {
+				return nil, &FileError{Path: e.GitDir, Err: err}
+			}
 		}
 		r.commonDir = filepath.Clean(dir)
 	case !errors.Is(err, fs.ErrNotExist):
 		return nil, &FileError{Path: filepath.Join(e.GitDir, "commondir"), Err: err}
 	}
 	return r, nil
+}
+
+// joinReal joins the relative path rel to the directory dir as the system
+// resolves it: the links of dir are followed before the ".." of rel apply,
+// where filepath.Join would apply them first.
+func joinReal(dir, rel string) (string, error) {
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(real, rel), nil
 }
 
 func (r *repo) localConfig() string {
@@ -178,7 +191,13 @@ type loader struct {
 
 	realGitDir  string // with '/', "" if it cannot be resolved
 	realDirRead bool
+
+	conds map[condKey]bool // includeIf conditions evaluated so far
 }
+
+// condKey is an includeIf condition and the file that holds it, which
+// "gitdir:./" depends on.
+type condKey struct{ cond, from string }
 
 func (e Env) newLoader() (*loader, error) {
 	r, err := e.repo()
@@ -298,9 +317,28 @@ func dirPrefix(path string) string {
 	return path[:i+1]
 }
 
-// condition evaluates the condition of an includeIf. Unknown conditions,
-// and those this package does not support (hasconfig:), are false.
+// condition evaluates the condition of an includeIf, once per condition
+// and file: a file can repeat path under one costly gitdir: pattern.
 func (l *loader) condition(cond, from string) (bool, error) {
+	k := condKey{cond, from}
+	if ok, found := l.conds[k]; found {
+		return ok, nil
+	}
+	ok, err := l.evalCondition(cond, from)
+	if err != nil {
+		return false, err
+	}
+	if l.conds == nil {
+		l.conds = make(map[condKey]bool)
+	}
+	l.conds[k] = ok
+	return ok, nil
+}
+
+// evalCondition evaluates the condition of an includeIf. Unknown
+// conditions, and those this package does not support (hasconfig:), are
+// false.
+func (l *loader) evalCondition(cond, from string) (bool, error) {
 	switch {
 	case strings.HasPrefix(cond, "gitdir:"):
 		return l.gitdir(cond[len("gitdir:"):], from, false)
@@ -326,8 +364,8 @@ func (l *loader) condition(cond, from string) (bool, error) {
 }
 
 // gitdir evaluates includeIf "gitdir:<pattern>": "~/" is the home
-// directory, "./" the directory of the including file, a relative pattern
-// matches at any depth ("**/" prepended) and a trailing '/' matches
+// directory, "./" the absolute directory of the including file, a relative
+// pattern matches at any depth ("**/" prepended) and a trailing '/' matches
 // everything below ("**" appended). The pattern is matched against the git
 // directory as given and its real path.
 func (l *loader) gitdir(pattern, from string, fold bool) (bool, error) {
@@ -336,7 +374,15 @@ func (l *loader) gitdir(pattern, from string, fold bool) (bool, error) {
 		if from == "" {
 			return false, &FileError{Path: pattern, Err: ErrNotAbsolute}
 		}
-		pattern = filepath.ToSlash(dirPrefix(from)) + pattern[2:]
+		dir := dirPrefix(from)
+		if !filepath.IsAbs(from) {
+			abs, err := filepath.Abs(from)
+			if err != nil {
+				return false, &FileError{Path: from, Err: err}
+			}
+			dir = dirPrefix(abs)
+		}
+		pattern = filepath.ToSlash(dir) + pattern[2:]
 	case strings.HasPrefix(pattern, "~/"):
 		if l.env.Home == "" {
 			return false, nil

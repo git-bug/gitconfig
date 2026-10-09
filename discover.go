@@ -101,7 +101,9 @@ func resolveGitDir(gitDir string) (string, error) {
 		return "", &FileError{Path: gitDir, Err: errors.New("invalid gitfile format")}
 	}
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(filepath.Dir(gitDir), path)
+		if path, err = joinReal(filepath.Dir(gitDir), path); err != nil {
+			return "", &FileError{Path: gitDir, Err: err}
+		}
 	}
 	return path, nil
 }

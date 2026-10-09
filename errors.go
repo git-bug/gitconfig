@@ -88,8 +88,7 @@ type FileError struct {
 }
 
 func (e *FileError) Error() string {
-	var se *SyntaxError
-	if errors.As(e.Err, &se) && se.File == e.Path {
+	if se, ok := errors.AsType[*SyntaxError](e.Err); ok && se.File == e.Path {
 		return se.Error()
 	}
 	return fmt.Sprintf("gitconfig: %s: %v", e.Path, e.Err)

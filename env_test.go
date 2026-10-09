@@ -464,6 +464,17 @@ func TestEnvLoadLimits(t *testing.T) {
 			require.NoError(t, err)
 		}
 	})
+
+	t.Run("repeated includeIf paths", func(t *testing.T) {
+		// One costly pattern, then many paths under it: the condition is
+		// evaluated once, not once per path.
+		dir := tempDir(t)
+		writeFile(t, filepath.Join(dir, "main"), "[includeIf \"gitdir:"+strings.Repeat("a*", 1<<17)+"\"]\n"+strings.Repeat("path =\n", 1<<16))
+		initRepo(t, filepath.Join(dir, ".git"), "")
+
+		_, err := gitconfig.Env{GitDir: filepath.Join(dir, ".git"), GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
+		require.NoError(t, err)
+	})
 }
 
 func TestEnvIncludeIf(t *testing.T) {
@@ -527,6 +538,26 @@ func TestEnvIncludeIf(t *testing.T) {
 		env := gitconfig.Env{GitDir: filepath.Join(link, "proj", ".git")}
 		assert.True(t, included(t, env, "gitdir:"+s+"/work/"), "real path")
 		assert.True(t, included(t, env, "gitdir:"+s+"/link/"), "path as given")
+	})
+
+	t.Run("gitdir:./ from a relative file", func(t *testing.T) {
+		// "./" is the absolute directory of the file: loaded as "config"
+		// from cfg, "gitdir:./repo/" is cfg/repo/, not any repo/.
+		cfg := filepath.Join(tempDir(t), "cfg")
+		writeFile(t, filepath.Join(cfg, "config"), "[includeIf \"gitdir:./repo/\"]\n\tpath = "+s+"/inc\n")
+		t.Chdir(cfg)
+		for _, tc := range []struct {
+			gitDir string
+			want   bool
+		}{
+			{filepath.Join(cfg, "repo", ".git"), true},
+			{filepath.Join(dir, "other", "repo", ".git"), false},
+		} {
+			c, err := gitconfig.Env{GitDir: tc.gitDir}.LoadFile("config")
+			require.NoError(t, err)
+			_, ok := c.Get("a.k")
+			assert.Equal(t, tc.want, ok, tc.gitDir)
+		}
 	})
 
 	t.Run("gitdir classes", func(t *testing.T) {
@@ -737,6 +768,24 @@ func TestEnvLoadScope(t *testing.T) {
 		c, err = env.LoadScope(gitconfig.ScopeWorktree)
 		require.NoError(t, err)
 		assert.Equal(t, []scoped{{gitconfig.ScopeWorktree, "linked"}}, scopedValues(c.GetAll("a.k")))
+	})
+
+	t.Run("linked worktree through a link", func(t *testing.T) {
+		// commondir's ".." apply to the real directory, as the system
+		// resolves them, not to the link's parent.
+		env := fullEnv(t)
+		local := filepath.Join(env.GitDir, "config")
+		wt := addWorktree(t, env.GitDir, "wt", "other")
+		link := filepath.Join(tempDir(t), "wt")
+		symlink(t, wt, link)
+		env.GitDir = link
+
+		path, err := env.WritePath(gitconfig.ScopeLocal)
+		require.NoError(t, err)
+		assert.Equal(t, local, path)
+		c, err := env.LoadScope(gitconfig.ScopeLocal)
+		require.NoError(t, err)
+		assert.Equal(t, "local", c.Value("a.k", ""))
 	})
 }
 
@@ -1090,6 +1139,20 @@ func TestDiscover(t *testing.T) {
 		env, err = gitconfig.Discover(filepath.Join(home, "wt2", ".git"))
 		require.NoError(t, err)
 		assert.Equal(t, wt, filepath.Clean(env.GitDir))
+	})
+
+	t.Run("gitdir file through a link", func(t *testing.T) {
+		// The ".." of the gitdir file apply to the real directory that
+		// holds it, not to the link's parent.
+		home := cleanGitEnv(t)
+		gitDir := filepath.Join(home, "real", "target", ".git")
+		initRepo(t, gitDir, "")
+		writeFile(t, filepath.Join(home, "real", "proj", ".git"), "gitdir: ../target/.git\n")
+		symlink(t, filepath.Join(home, "real", "proj"), filepath.Join(home, "proj"))
+
+		env, err := gitconfig.Discover(filepath.Join(home, "proj", ".git"))
+		require.NoError(t, err)
+		assert.Equal(t, gitDir, env.GitDir)
 	})
 
 	t.Run("malformed gitdir file", func(t *testing.T) {
