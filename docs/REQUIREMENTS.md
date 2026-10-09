@@ -76,7 +76,7 @@ from git, and the principles that decide it, are in
 | N9 | Loading with includes from a caller's filesystem (go-billy), through a single read-file function. | LATER |
 | N5 | Go version no newer than the oldest of git-bug's and go-git's `go.mod` (both `go 1.26.0` today).                                                                                                                     | MUST |
 | N6 | Works on Linux, macOS and Windows (path handling, CRLF, rename-over-existing).                                                                                                                                       | MUST |
-| N7 | Licence compatible with both go-git (Apache-2.0) and git-bug (GPL-3.0).                                                                                                                                              | MUST |
+| N7 | MIT licence, compatible with go-git (Apache-2.0) and git-bug. No code derived from git (GPL-2.0-only): see [CLEAN-ROOM.md](CLEAN-ROOM.md). | MUST |
 | N8 | Errors are sentinel values wrapped in typed errors (`KeyError`, `FileError`, `SyntaxError`, `ValueError`) usable with `errors.Is`/`errors.As`, and carry file/line/key context like git's messages. Which method returns which is listed in `errors.go`.                                                                        | MUST |
 
 ## 6. Security

@@ -59,7 +59,7 @@ read-only uses there, except `CreateRemote` in tests.
 ### Fit with go-git's rules
 
 - Standard library only, no global state, no `init()`, no panics (AGENTS.md).
-- Licence must be Apache-2.0 compatible.
+- Licence: MIT, compatible with Apache-2.0.
 - go-git keeps the repository on go-billy (often rooted at the repository,
   or in memory) and already has git's lock protocol for references
   (`dotgit.lockFile`: exclusive create, timeout, Windows retries, fallback
