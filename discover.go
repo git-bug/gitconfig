@@ -138,9 +138,13 @@ var errBogusParameters = errors.New("gitconfig: bogus format in GIT_CONFIG_PARAM
 // parseParameters parses GIT_CONFIG_PARAMETERS, where git passes its -c
 // options to the commands it runs: items separated by whitespace, each a
 // single-quoted key, then "=" and a single-quoted value, or "=" alone for
-// an option without a value. A quote inside quotes is written '\” and an
-// exclamation mark may be written '\!'. The older form of an item, a
-// single-quoted "key=value", is accepted too.
+// an option without a value. Inside a quoted string, a quote is written as
+// a backslash and a quote between two quoted strings, and so may be an
+// exclamation mark:
+//
+//	'e.f'='x'\''y' 'g.h'=''\!'z'
+//
+// The older form of an item, a single-quoted "key=value", is accepted too.
 func parseParameters(s string) ([]CommandEntry, error) {
 	var entries []CommandEntry
 	for s != "" {

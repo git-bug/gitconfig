@@ -308,8 +308,8 @@ func (f *File) entryLineEnd(i int) int {
 //     removed entries' lines.
 //
 // The region removed then starts after the previous entry's line, or right
-// after the previous header (the rest of its line becomes a newline), and
-// ends at the next header, its indentation included.
+// after the previous header or a BOM (the rest of its line becomes a
+// newline), and ends at the next header, its indentation included.
 func (f *File) unsetEntries(idx []int) []splice {
 	removed := make(map[int]bool, len(idx))
 	for _, i := range idx {
@@ -373,7 +373,8 @@ func (f *File) unsetEntry(i int, removed, trailing map[int]bool) splice {
 	switch {
 	case b < 0:
 		if len(f.items) > 0 && f.items[0].kind == itemBOM {
-			start = f.items[0].end
+			// git ends the line after a BOM as after a header.
+			start, text = f.items[0].end, "\n"
 		}
 	case f.items[b].kind == itemEntry:
 		start = f.lineEnd(b)

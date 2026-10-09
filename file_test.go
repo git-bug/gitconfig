@@ -491,6 +491,12 @@ var unsetCases = []editCase{
 	{"entry before any header kept",
 		"k = v\n[a]\n\tj = w\n", edits(unset("a.j")),
 		"k = v\n"},
+	{"only key after a BOM",
+		"\xef\xbb\xbf[a]\n\tk = v\n", edits(unset("a.k")),
+		"\xef\xbb\xbf\n"},
+	{"section after a BOM removed",
+		"\xef\xbb\xbf  [a]\r\n\tk = v\r\n[b]\r\n\tx = y\r\n", edits(unset("a.k")),
+		"\xef\xbb\xbf\n[b]\r\n\tx = y\r\n"},
 
 	// E5: the emptied section is removed unless a comment lies between
 	// the previous entry or header and the next section.

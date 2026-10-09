@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // Limits of one load (X3): git's include depth, and bounds on the work a
@@ -61,7 +62,7 @@ func (r *repo) worktreeConfig() string {
 // in the repository's config.
 func (r *repo) worktreeConfigEnabled() (bool, error) {
 	data, err := readConfigFile(r.localConfig(), maxLoadBytes)
-	if errors.Is(err, fs.ErrNotExist) {
+	if isMissing(err) {
 		return false, nil
 	}
 	if err != nil {
@@ -156,6 +157,12 @@ func readConfigFile(path string, limit int64) ([]byte, error) {
 	return data, err
 }
 
+// isMissing reports whether err means that a file does not exist: also
+// when a directory of its path is a file, as git takes it.
+func isMissing(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
+}
+
 // loader loads files into a list of entries, following includes, within
 // the limits of one load.
 type loader struct {
@@ -202,7 +209,7 @@ func (l *loader) load(path string, scope Scope, depth int) error {
 		return &FileError{Path: path, Err: ErrLoadLimit}
 	}
 	data, err := readConfigFile(path, maxLoadBytes-l.bytes)
-	if errors.Is(err, fs.ErrNotExist) {
+	if isMissing(err) {
 		return nil
 	}
 	if err != nil {

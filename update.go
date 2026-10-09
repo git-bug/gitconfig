@@ -42,7 +42,7 @@ func updateFile(path string, scope Scope, fn func(*File) error) (err error) {
 	data, err := readConfigFile(target, maxLoadBytes)
 	exists := err == nil
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	case isMissing(err):
 		data = nil
 	case err != nil:
 		return &FileError{Path: path, Err: err}

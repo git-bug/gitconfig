@@ -158,6 +158,16 @@ func TestEnvLoad(t *testing.T) {
 		assert.Empty(t, slices.Collect(c.All()))
 	})
 
+	t.Run("file in place of a directory is missing", func(t *testing.T) {
+		// A file ~/.config/git hides the XDG file, as for git.
+		dir := tempDir(t)
+		writeFile(t, filepath.Join(dir, "git"), "")
+		env := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "git", "config")}}
+		c, err := env.Load()
+		require.NoError(t, err)
+		assert.Empty(t, slices.Collect(c.All()))
+	})
+
 	t.Run("outside a repository", func(t *testing.T) {
 		env := fullEnv(t)
 		env.GitDir = ""
@@ -297,7 +307,7 @@ func TestEnvIncludes(t *testing.T) {
 
 	t.Run("missing file ignored", func(t *testing.T) {
 		_, c, err := load(t, map[string]string{
-			"main": "[include]\n\tpath = missing\n\tpath = ~/missing\n[a]\n\tk = v\n",
+			"main": "[include]\n\tpath = missing\n\tpath = ~/missing\n\tpath = main/missing\n[a]\n\tk = v\n",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "v", c.Value("a.k", ""))
