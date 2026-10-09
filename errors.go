@@ -1,6 +1,9 @@
 package gitconfig
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // The sentinel errors below are returned wrapped in a typed error that says
 // which key, file or value is concerned; test them with errors.Is, and get
@@ -69,7 +72,7 @@ type KeyError struct {
 }
 
 func (e *KeyError) Error() string {
-	panic("not implemented")
+	return fmt.Sprintf("%v: %q", e.Err, e.Key)
 }
 
 func (e *KeyError) Unwrap() error {
@@ -85,7 +88,11 @@ type FileError struct {
 }
 
 func (e *FileError) Error() string {
-	panic("not implemented")
+	var se *SyntaxError
+	if errors.As(e.Err, &se) && se.File == e.Path {
+		return se.Error()
+	}
+	return fmt.Sprintf("gitconfig: %s: %v", e.Path, e.Err)
 }
 
 func (e *FileError) Unwrap() error {
@@ -102,7 +109,7 @@ type SyntaxError struct {
 }
 
 func (e *SyntaxError) Error() string {
-	panic("not implemented")
+	return fmt.Sprintf("gitconfig: %s line %d in file %s", e.Msg, e.Line, e.File)
 }
 
 // ValueError reports a value that cannot be read as the requested type. Its
@@ -115,7 +122,19 @@ type ValueError struct {
 }
 
 func (e *ValueError) Error() string {
-	panic("not implemented")
+	var msg string
+	if e.Entry.Implicit {
+		msg = fmt.Sprintf("gitconfig: missing %s value for %q", e.Type, e.Entry.Key.String())
+	} else {
+		msg = fmt.Sprintf("gitconfig: bad %s value %q for %q", e.Type, e.Entry.Value, e.Entry.Key.String())
+	}
+	if e.Entry.Origin.File != "" {
+		msg += fmt.Sprintf(" in file %s", e.Entry.Origin.File)
+	}
+	if e.Err != nil {
+		msg += ": " + e.Err.Error()
+	}
+	return msg
 }
 
 func (e *ValueError) Unwrap() error {

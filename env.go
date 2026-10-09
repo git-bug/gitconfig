@@ -1,5 +1,9 @@
 package gitconfig
 
+import (
+	"strconv"
+)
+
 // Scope is one layer of git's configuration. Values from later scopes take
 // precedence over earlier ones.
 //
@@ -21,7 +25,21 @@ const (
 // String returns the scope as git names it ("system", "global", ...), and
 // "file" for ScopeFile.
 func (s Scope) String() string {
-	panic("not implemented")
+	switch s {
+	case ScopeFile:
+		return "file"
+	case ScopeSystem:
+		return "system"
+	case ScopeGlobal:
+		return "global"
+	case ScopeLocal:
+		return "local"
+	case ScopeWorktree:
+		return "worktree"
+	case ScopeCommand:
+		return "command"
+	}
+	return "Scope(" + strconv.Itoa(int(s)) + ")"
 }
 
 // Env says where git's configuration comes from: the system file, the global
@@ -88,9 +106,11 @@ type CommandEntry struct {
 // Pass "" when not in a repository: only the system, global and command-line
 // scopes exist then.
 //
-// It fails if the home directory is needed and cannot be determined, if a
-// gitdir file is malformed, or if GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS
-// is malformed, as git does.
+// Without a home directory, Home is "" and the global files are those git
+// reads then: the XDG file if XDG_CONFIG_HOME is set, no ~/.gitconfig.
+//
+// It fails if a gitdir file is malformed, or if GIT_CONFIG_COUNT or
+// GIT_CONFIG_PARAMETERS is malformed, as git does.
 //
 // It is the only function of this package that reads the process
 // environment.
@@ -108,6 +128,9 @@ func Discover(gitDir string) (Env, error) {
 // and one load reads at most 1000 files and 64 MiB in total (ErrLoadLimit, so
 // a file including itself many times cannot multiply the work exponentially).
 // These are reached only by files built to reach them.
+//
+// A global file that cannot be read for lack of permission is skipped, as
+// git does; LoadProtected skips such a system file too.
 func (e Env) Load() (*Config, error) {
 	panic("not implemented")
 }
@@ -137,6 +160,11 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 // LoadScope returns the configuration of exactly one scope, with includes
 // followed, like `git config --includes --<scope>` (git itself follows
 // includes there only with --includes). Lower scopes are not included.
+//
+// ScopeGlobal is the whole global layer, every file of GlobalConfig, as in
+// Load. `git config --global` differs: it reads only the file it writes to
+// (WritePath), so keys of the XDG file are not listed while ~/.gitconfig
+// exists.
 //
 // A scope with no file (SystemConfig "", a global or worktree file that
 // does not exist) is empty, as for `git config --get`. ScopeWorktree reads
@@ -191,6 +219,10 @@ func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
 //     a new file gets 0666 minus the umask), and rename it over the target;
 //     otherwise leave the target alone.
 //
+// On Windows, opening or replacing the target is retried for up to a second
+// while another process holds it, as a concurrent writer or a reader does
+// for a moment.
+//
 // If fn returns an error or panics, the lock is released and nothing is
 // written; the panic then continues. Readers see either the old or the new file, never a partial one.
 // After fn returns, edits of the File fail with ErrClosed.
@@ -200,10 +232,5 @@ func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
 // path controls which file is written: do not edit the configuration of a
 // repository you have not checked with SafeDirectory and an ownership check.
 func (e Env) UpdateFile(path string, fn func(*File) error) error {
-	panic("not implemented")
-}
-
-// lockAndUpdate implements Env.UpdateFile.
-func lockAndUpdate(path string, fn func(*File) error) error {
 	panic("not implemented")
 }

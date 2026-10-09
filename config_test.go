@@ -3,6 +3,7 @@ package gitconfig_test
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -358,7 +359,7 @@ var boolCases = []struct {
 	{"", false},
 }
 
-var boolErrorCases = []string{"maybe", "tru", "yes!", "1x", "0.5"}
+var boolErrorCases = []string{"maybe", "tru", "yes!", "1x", "0.5", "-2147483649", "yeſ", "falſe"}
 
 func TestEntryBool(t *testing.T) {
 	for _, tc := range boolCases {
@@ -371,6 +372,14 @@ func TestEntryBool(t *testing.T) {
 
 	t.Run("implicit", func(t *testing.T) {
 		got, err := gitconfig.Entry{Implicit: true}.Bool()
+		require.NoError(t, err)
+		assert.True(t, got)
+	})
+
+	// Not in boolCases, which are checked against git: see the minimum of
+	// TestEntryInt.
+	t.Run("minimum", func(t *testing.T) {
+		got, err := gitconfig.Entry{Value: "-2147483648"}.Bool()
 		require.NoError(t, err)
 		assert.True(t, got)
 	})
@@ -398,6 +407,9 @@ var intErrorCases = []struct {
 	{"implicit", gitconfig.Entry{Implicit: true}, false},
 	{"too large", gitconfig.Entry{Value: "99999999999999999999"}, true},
 	{"too large with unit", gitconfig.Entry{Value: "8589934592g"}, true},
+	{"too small", gitconfig.Entry{Value: "-9223372036854775809"}, true},
+	{"too small with unit", gitconfig.Entry{Value: "-8589934593g"}, true},
+	{"non-ASCII unit", gitconfig.Entry{Value: "1\u212a"}, false}, // Kelvin sign, lowered to k by Unicode
 }
 
 var intCases = []struct {
@@ -415,7 +427,10 @@ var intCases = []struct {
 	{"1g", 1 << 30},
 	{"1G", 1 << 30},
 	{"0x10", 16},
+	{"010", 8}, // octal
 	{"9223372036854775807", 9223372036854775807},
+	{"-9223372036854775807", -9223372036854775807},
+	{"-8589934591g", -8589934591 << 30},
 	{"8589934591g", 8589934591 << 30},
 }
 
@@ -427,6 +442,22 @@ func TestEntryInt(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+
+	// Not in intCases, which are checked against git: git 2.47.3
+	// rejects the minimum, a bug fixed in a later release.
+	t.Run("minimum", func(t *testing.T) {
+		for _, tc := range []struct {
+			value string
+			want  int64
+		}{
+			{"-9223372036854775808", math.MinInt64},
+			{"-8589934592g", math.MinInt64},
+		} {
+			got, err := gitconfig.Entry{Value: tc.value}.Int()
+			require.NoError(t, err, tc.value)
+			assert.Equal(t, tc.want, got, tc.value)
+		}
+	})
 
 	for _, tc := range intErrorCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -577,6 +608,7 @@ func TestConfigTypedGetters(t *testing.T) {
 		require.ErrorAs(t, err, &ve)
 		assert.Equal(t, "~/d", got)
 		assert.Equal(t, "~/d", ve.Entry.Value)
+		assert.Equal(t, gitconfig.Key{Section: "a", Name: "missing"}, ve.Entry.Key)
 		assert.Equal(t, gitconfig.Origin{}, ve.Entry.Origin)
 	})
 }

@@ -79,6 +79,12 @@ func TestParseValues(t *testing.T) {
 		assert.Equal(t, []string{"a.k", "a.j=v"}, list(slices.Collect(mustConfig(t, "[a]\n\tk\n\tj = v\n").All())))
 	})
 
+	t.Run("entry before any header", func(t *testing.T) {
+		// git reads it under a key with no section, which no command can
+		// ask for; it is kept in the file but not part of the Config.
+		assert.Equal(t, []string{"a.j=w"}, list(slices.Collect(mustConfig(t, "k = v\n[a]\n\tj = w\n").All())))
+	})
+
 	t.Run("empty subsection is not none", func(t *testing.T) {
 		assert.Equal(t, []string{"a..k=v", "a.k=w"}, list(slices.Collect(mustConfig(t, "[a \"\"]\n\tk = v\n[a]\n\tk = w\n").All())))
 	})
@@ -136,6 +142,8 @@ var roundTripCases = []string{
 	"[a \"\"]\n\tk =\n[a \"s\\\"q\"]\n\tk=\n",
 	"\t\t[a]\t\t\n\t\tk\t=\tv\t\t\n",
 	"[a]\n\tk = x\ry\n",
+	"k = v\n[a]\n\tj = w\n",
+	"\xef\xbb\xbf",
 }
 
 func TestParseRoundTrip(t *testing.T) {
@@ -480,6 +488,9 @@ var unsetCases = []editCase{
 	{"case-insensitive key",
 		"[A]\n\tK = v\n\tj = w\n", edits(unset("a.k")),
 		"[A]\n\tj = w\n"},
+	{"entry before any header kept",
+		"k = v\n[a]\n\tj = w\n", edits(unset("a.j")),
+		"k = v\n"},
 
 	// E5: the emptied section is removed unless a comment lies between
 	// the previous entry or header and the next section.
@@ -611,6 +622,9 @@ var renameSectionCases = []editCase{
 	{"existing target not checked",
 		"[a]\n\tk = 1\n[b]\n\tk = 2\n", edits(renameSection("a", "b")),
 		"[b]\n\tk = 1\n[b]\n\tk = 2\n"},
+	{"two headers on a line",
+		"[a] [b]\n\tk = v\n", edits(renameSection("a", "z")),
+		"[z]\n\t[b]\n\tk = v\n"},
 	{"subsection",
 		"[remote \"old\"]\n\turl = u\n[remote \"other\"]\n\turl = o\n", edits(renameSubsection("remote", "old", "new")),
 		"[remote \"new\"]\n\turl = u\n[remote \"other\"]\n\turl = o\n"},
@@ -636,13 +650,39 @@ func TestFileRenameSection(t *testing.T) {
 }
 
 // gitDifferenceCases are edits where this package deliberately differs from
-// git (E10): keys and sections are matched by their canonical form, so a
-// legacy header [a.B] holds subsection "b", and section names are
+// git.
+//
+// E10: keys and sections are matched by their canonical form, so a legacy
+// header [a.B] holds subsection "b", and section names are
 // case-insensitive. git matches legacy headers case-insensitively when it
 // places a new key (so that Set("a.B.j") writes a key that reads back as
 // a.b.j, and Set("a.B.k") can make a.b.k multi-valued), and matches the
 // header text as written when it removes or renames a section.
+//
+// X1: sections are found by parsing, where git scans lines. git takes a
+// line starting with '[' inside a continued value for a header, and does
+// not see a header right after a BOM; it writes a new section after a file
+// holding only a BOM, which then does not parse.
 var gitDifferenceCases = []editCase{
+	{"remove section: header-like line in a continued value",
+		"[a]\n\tk = x\\\n[b]\n\tz = 1\n[b]\n\ty = 2\n", edits(removeSection("b")),
+		"[a]\n\tk = x\\\n[b]\n\tz = 1\n"},
+	{"rename section: header-like line in a continued value",
+		"[a]\n\tk = x\\\n[b]\n[b]\n\ty = 2\n", edits(renameSection("b", "c")),
+		"[a]\n\tk = x\\\n[b]\n[c]\n\ty = 2\n"},
+	{"remove section after a BOM",
+		"\xef\xbb\xbf[a]\n\tk = v\n[b]\n\tx = y\n", edits(removeSection("a")),
+		"\xef\xbb\xbf[b]\n\tx = y\n"},
+	{"rename section after a BOM",
+		"\xef\xbb\xbf  [a] k = v\n", edits(renameSection("a", "z")),
+		"\xef\xbb\xbf[z]\n\tk = v\n"},
+	{"remove the second header of a line",
+		"[a] [b]\n\tk = v\n[c]\n\tx = y\n", edits(removeSection("b")),
+		"[a][c]\n\tx = y\n"}, // the space is the indentation of [b]
+	{"set in a file holding only a BOM",
+		"\xef\xbb\xbf", edits(set("a.k", "v")),
+		"\xef\xbb\xbf[a]\n\tk = v\n"},
+
 	{"legacy subsection, other case: new subsection",
 		"[a.B]\n\tk = v\n", edits(set("a.B.j", "w")),
 		"[a.B]\n\tk = v\n[a \"B\"]\n\tj = w\n"},
@@ -665,6 +705,16 @@ var gitDifferenceCases = []editCase{
 
 func TestFileGitDifferences(t *testing.T) {
 	runEditCases(t, gitDifferenceCases)
+
+	t.Run("header-like line in a continued value is not a section", func(t *testing.T) {
+		const data = "[a]\n\tk = x\\\n[b]\n\tz = 1\n"
+		f := mustParse(t, data)
+		removed, err := f.RemoveSection("b")
+		require.NoError(t, err)
+		assert.False(t, removed)
+		require.ErrorIs(t, f.RenameSection("b", "c"), gitconfig.ErrNotFound)
+		assert.Equal(t, data, string(f.Bytes()))
+	})
 
 	t.Run("legacy subsection is not its header's spelling", func(t *testing.T) {
 		const data = "[a.X]\n\tk = v\n"
@@ -697,6 +747,9 @@ var editErrorCases = []struct {
 
 	{"Set invalid key", set("a.k_y", "v"), gitconfig.ErrInvalidKey, "a.k_y"},
 	{"Set without section", set("k", "v"), gitconfig.ErrInvalidKey, "k"},
+	// git accepts it and writes the header [ "sub"].
+	{"Set empty section", set(".sub.k", "v"), gitconfig.ErrInvalidKey, ".sub.k"},
+	{"Add empty section", add(".sub.k", "v"), gitconfig.ErrInvalidKey, ".sub.k"},
 	{"Set newline in subsection", set("a.x\ny.k", "v"), gitconfig.ErrInvalidKey, "a.x\ny.k"},
 	{"Add invalid key", add("a.1k", "v"), gitconfig.ErrInvalidKey, "a.1k"},
 	{"ReplaceAll invalid key", replaceAll("a.-k", "v"), gitconfig.ErrInvalidKey, "a.-k"},
@@ -782,6 +835,9 @@ func FuzzEdit(f *testing.F) {
 		before := slices.Collect(file.Config().All())
 		original := slices.Clone(file.Bytes())
 		k, keyErr := gitconfig.ParseKey(key)
+		if keyErr == nil && k.Section == "" {
+			keyErr = errors.New("empty section: read, never written")
+		}
 
 		var mine []gitconfig.Entry
 		for _, e := range before {
@@ -862,6 +918,83 @@ func FuzzEdit(f *testing.F) {
 	})
 }
 
+// FuzzSectionEdit checks that removing or renaming a section cannot touch
+// anything else (X1): the edited file parses to the entries before the
+// edit, without the section's entries or with them renamed.
+func FuzzSectionEdit(f *testing.F) {
+	for _, s := range parseSeeds {
+		f.Add([]byte(s), false, "a", "", false, "z")
+		f.Add([]byte(s), true, "a", "x", true, "y")
+	}
+	f.Add([]byte("[a]\n\tk = x\\\n[b]\n\tz = 1\n[b]\n\ty = 2\n"), false, "b", "", false, "c")
+	f.Add([]byte("[a]\n\tk = x\\\n[b]\n[b] y = 2\n"), true, "b", "", false, "c")
+
+	f.Fuzz(func(t *testing.T, data []byte, rename bool, section, sub string, hasSub bool, newName string) {
+		file, err := gitconfig.Parse("f", data)
+		if err != nil {
+			return
+		}
+		before := slices.Collect(file.Config().All())
+		original := slices.Clone(file.Bytes())
+
+		inSection := func(k gitconfig.Key) bool {
+			return k.Section == strings.ToLower(section) && k.HasSubsection == hasSub && (!hasSub || k.Subsection == sub)
+		}
+		matched := slices.ContainsFunc(before, func(e gitconfig.Entry) bool { return inSection(e.Key) })
+
+		var want []gitconfig.Entry
+		for _, e := range before {
+			e.Origin = gitconfig.Origin{}
+			if inSection(e.Key) {
+				if !rename {
+					continue
+				}
+				if hasSub {
+					e.Key.Subsection = newName
+				} else {
+					e.Key.Section = strings.ToLower(newName)
+				}
+			}
+			want = append(want, e)
+		}
+
+		switch {
+		case rename && hasSub:
+			err = file.RenameSubsection(section, sub, newName)
+		case rename:
+			err = file.RenameSection(section, newName)
+		default:
+			var removed bool
+			if hasSub {
+				removed, err = file.RemoveSubsection(section, sub)
+			} else {
+				removed, err = file.RemoveSection(section)
+			}
+			if err == nil && matched {
+				require.True(t, removed, "entries of the section but nothing removed")
+			}
+		}
+
+		if err != nil {
+			require.Equal(t, original, file.Bytes(), "a failed edit changed the file")
+			if !errors.Is(err, gitconfig.ErrInvalidKey) {
+				require.ErrorIs(t, err, gitconfig.ErrNotFound)
+				require.False(t, matched, "entries of the section but not found")
+			}
+			return
+		}
+
+		reparsed, err := gitconfig.Parse("f", file.Bytes())
+		require.NoError(t, err, "the edit produced a file that does not parse:\n%q", file.Bytes())
+		after := slices.Collect(reparsed.Config().All())
+		require.Equal(t, after, slices.Collect(file.Config().All()), "snapshot differs from the written bytes")
+		for i := range after {
+			after[i].Origin = gitconfig.Origin{}
+		}
+		require.Equal(t, want, after)
+	})
+}
+
 var parseSeeds = []string{
 	"",
 	"[a]\n\tk = v\n",
@@ -877,6 +1010,9 @@ var parseSeeds = []string{
 	"[a]\n\tk = x\\\\ny\\t\\\"\n",
 	"[a\n",
 	"[a]\n\tk = \"x\n",
+	"k = v\n[a]\n\tj = w\n",
+	"[a]\n\tk = x\\\n[b]\n",
+	"\xef\xbb\xbf",
 }
 
 // sized repeats unit until the result is at least n bytes long.

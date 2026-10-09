@@ -166,6 +166,14 @@ func (g *isolatedGit) list(content string) (entries []string, errLine int) {
 	return entries, 0
 }
 
+// assertSamePath compares paths up to their separators: git for Windows
+// writes some paths with '/' (it converts HOME, for one) where this package
+// keeps the caller's spelling. A no-op elsewhere.
+func assertSamePath(t testing.TB, want, got string, msgAndArgs ...any) {
+	t.Helper()
+	assert.Equal(t, filepath.ToSlash(want), filepath.ToSlash(got), msgAndArgs...)
+}
+
 // checkParse checks that Parse reads content as git does.
 func checkParse(t *testing.T, g *isolatedGit, content string) {
 	t.Helper()
@@ -178,6 +186,15 @@ func checkParse(t *testing.T, g *isolatedGit, content string) {
 		return
 	}
 	require.NoError(t, err, "git accepts %q", content)
+	// An entry before any header has a key with no section, which no git
+	// command can ask for; Config leaves it out.
+	want = slices.DeleteFunc(want, func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return !strings.Contains(k, ".")
+	})
+	if len(want) == 0 {
+		want = nil
+	}
 	assert.Equal(t, want, list(slices.Collect(f.Config().All())), "entries of %q", content)
 }
 
@@ -303,7 +320,7 @@ func TestGitTypes(t *testing.T) {
 					return
 				}
 				require.NoError(t, err)
-				assert.Equal(t, want, got)
+				assertSamePath(t, want, got)
 			})
 		}
 	})
@@ -396,12 +413,13 @@ func TestGitEdit(t *testing.T) {
 // gitRejects reports whether git fails on an edit of editErrorCases as this
 // package does. A NUL cannot be passed to git, and git renames a section to
 // a subsection containing a newline, writing a header it cannot parse back
-// (X1).
+// (X1). git also writes a key with an empty section, under [ "sub"], which
+// this package refuses (see COMPATIBILITY.md).
 func gitRejects(e edit) bool {
 	has := func(r rune) bool {
 		return slices.ContainsFunc(e.args, func(s string) bool { return strings.ContainsRune(s, r) })
 	}
-	return !has(0) && !(e.op == "--rename-section" && has('\n'))
+	return !has(0) && !(e.op == "--rename-section" && has('\n')) && !strings.HasPrefix(e.args[0], ".")
 }
 
 // TestGitVectors checks the expectations of the unit tests against git
@@ -478,7 +496,7 @@ func TestGitVectors(t *testing.T) {
 			if tc.home != "" {
 				want = strings.Replace(want, tc.home, g.dir, 1)
 			}
-			assert.Equal(t, want, got, "%q", tc.value)
+			assertSamePath(t, want, got, "%q", tc.value)
 		}
 	})
 
@@ -793,7 +811,10 @@ var gitScenarios = []gitScenario{
 			// Found from its working directory, git would see the real
 			// path only; given the git directory, it matches both.
 			work := filepath.Join(root, "link", "proj")
-			t.Setenv("GIT_DIR", filepath.Join(work, ".git"))
+			// git for Windows matches the path as given only if it is
+			// written with '/': it compares a backslashed GIT_DIR with the
+			// pattern as is, where this package uses '/' for both.
+			t.Setenv("GIT_DIR", filepath.ToSlash(filepath.Join(work, ".git")))
 			return work, filepath.Join(work, ".git")
 		},
 	},
@@ -866,13 +887,15 @@ func gitOrigin(dir, origin string) string {
 	if !filepath.IsAbs(path) {
 		path = dir + "/" + path
 	}
-	return path
+	return filepath.ToSlash(path)
 }
 
+// describe renders entries as git lists them with --show-origin. Origins
+// are compared up to their separators, see assertSamePath.
 func describe(entries []gitconfig.Entry, withScope bool) []string {
 	var out []string
 	for i, e := range entries {
-		s := e.Origin.File + "\t" + list(entries[i : i+1])[0]
+		s := filepath.ToSlash(e.Origin.File) + "\t" + list(entries[i : i+1])[0]
 		if withScope {
 			s = e.Origin.Scope.String() + "\t" + s
 		}
@@ -928,6 +951,24 @@ func TestGitLoad(t *testing.T) {
 				// The scope itself is not compared: git labels
 				// config.worktree "local" when asked for --worktree.
 				t.Run("LoadScope "+s.String(), func(t *testing.T) {
+					if s == gitconfig.ScopeGlobal {
+						// `git config --global` reads only the file it
+						// writes; LoadScope reads the whole global layer, as
+						// git does when it reads every scope.
+						res := runGit(t, workDir, processEnv(), "config", "--list", "--show-scope", "--show-origin", "-z")
+						require.Zero(t, res.code, res.stderr)
+						got, err := env.LoadScope(s)
+						require.NoError(t, err)
+
+						var want []string
+						for _, r := range splitZ(t, res.stdout, 3) {
+							if r[0] == "global" {
+								want = append(want, gitOrigin(workDir, r[1])+"\t"+gitKeyValue(r[2]))
+							}
+						}
+						assert.Equal(t, want, describe(slices.Collect(got.All()), false))
+						return
+					}
 					res := runGit(t, workDir, processEnv(), "config", "--"+s.String(), "--includes", "--list", "--show-origin", "-z")
 					got, err := env.LoadScope(s)
 					if res.code != 0 {

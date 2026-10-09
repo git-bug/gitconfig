@@ -3,19 +3,28 @@ package gitconfig_test
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/git-bug/gitconfig"
 )
+
+// sep is the separator the platform's paths use. An include's relative
+// path is joined to the including file's directory with the separator that
+// ends it, and is not cleaned: the include's own '/' are kept.
+const sep = string(filepath.Separator)
 
 // tempDir returns a temporary directory with symbolic links resolved, so
 // that paths built from it are the real paths includeIf "gitdir:" compares.
@@ -230,7 +239,7 @@ func TestEnvIncludes(t *testing.T) {
 		assert.Equal(t, []string{"a.k=before", "include.path=sub/inc", "a.k=inc", "a.k=after"}, list(slices.Collect(c.All())))
 
 		inc := c.GetAll("a.k")[1]
-		assert.Equal(t, gitconfig.Origin{Scope: gitconfig.ScopeGlobal, File: dir + "/sub/inc", Line: 2}, inc.Origin)
+		assert.Equal(t, gitconfig.Origin{Scope: gitconfig.ScopeGlobal, File: dir + sep + "sub/inc", Line: 2}, inc.Origin)
 	})
 
 	t.Run("included value wins when last", func(t *testing.T) {
@@ -250,7 +259,7 @@ func TestEnvIncludes(t *testing.T) {
 		require.NoError(t, err)
 		e, ok := c.Get("a.k")
 		require.True(t, ok)
-		assert.Equal(t, dir+"/./d/../d/inc", e.Origin.File)
+		assert.Equal(t, dir+sep+"./d/../d/inc", e.Origin.File)
 	})
 
 	t.Run("nested includes relative to the including file", func(t *testing.T) {
@@ -263,7 +272,7 @@ func TestEnvIncludes(t *testing.T) {
 		e, ok := c.Get("a.k")
 		require.True(t, ok)
 		assert.Equal(t, "deep", e.Value)
-		assert.Equal(t, dir+"/d1/d2/inc", e.Origin.File)
+		assert.Equal(t, dir+sep+"d1/d2/inc", e.Origin.File)
 	})
 
 	t.Run("home expanded", func(t *testing.T) {
@@ -364,7 +373,7 @@ func TestEnvIncludes(t *testing.T) {
 		})
 		var se *gitconfig.SyntaxError
 		require.ErrorAs(t, err, &se)
-		assert.Equal(t, dir+"/./inc", se.File)
+		assert.Equal(t, dir+sep+"./inc", se.File)
 		assert.Equal(t, 2, se.Line)
 	})
 
@@ -524,6 +533,8 @@ func TestEnvIncludeIf(t *testing.T) {
 			{"ref: refs/heads/feature/x\n", "onbranch:feature/*", true},
 			{"ref: refs/heads/feature/x\n", "onbranch:x", false},
 			{"0123456789012345678901234567890123456789\n", "onbranch:main", false},
+			{"ref:refs/heads/main\n", "onbranch:main", true},
+			{"ref:\trefs/heads/main\n", "onbranch:main", true},
 		} {
 			t.Run(tc.head+tc.cond, func(t *testing.T) {
 				gitDir := filepath.Join(tempDir(t), ".git")
@@ -547,6 +558,13 @@ func TestEnvIncludeIf(t *testing.T) {
 		assert.False(t, included(t, env, "gitdir"))
 	})
 
+	t.Run("relative gitdir pattern from the command line", func(t *testing.T) {
+		// git prints an error and goes on without the include.
+		env := gitconfig.Env{GitDir: gitDir, Command: []gitconfig.CommandEntry{{Key: "includeIf.gitdir:./.path", Value: s + "/inc"}}}
+		_, err := env.Load()
+		require.ErrorIs(t, err, gitconfig.ErrNotAbsolute)
+	})
+
 	t.Run("in the repository's config, relative path", func(t *testing.T) {
 		gitDir := filepath.Join(tempDir(t), ".git")
 		initRepo(t, gitDir, "[includeIf \"onbranch:main\"]\n\tpath = inc\n")
@@ -555,7 +573,7 @@ func TestEnvIncludeIf(t *testing.T) {
 		require.NoError(t, err)
 		e, ok := c.Get("a.k")
 		require.True(t, ok)
-		assert.Equal(t, gitconfig.Origin{Scope: gitconfig.ScopeLocal, File: gitDir + "/inc", Line: 2}, e.Origin)
+		assert.Equal(t, gitconfig.Origin{Scope: gitconfig.ScopeLocal, File: gitDir + sep + "inc", Line: 2}, e.Origin)
 	})
 
 	t.Run("linked worktree", func(t *testing.T) {
@@ -676,7 +694,7 @@ func TestEnvLoadFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []scoped{{gitconfig.ScopeFile, "file"}, {gitconfig.ScopeFile, "inc"}}, scopedValues(c.GetAll("a.k")))
 	e, _ := c.Get("a.k")
-	assert.Equal(t, dir+"/inc", e.Origin.File)
+	assert.Equal(t, dir+sep+"inc", e.Origin.File)
 
 	c, err = env.LoadFile(filepath.Join(dir, "missing"))
 	require.NoError(t, err)
@@ -704,6 +722,16 @@ func TestEnvLoadProtected(t *testing.T) {
 }
 
 func TestEnvSafeDirectory(t *testing.T) {
+	// The directories exist: SafeDirectory skips a listed path it cannot
+	// resolve, and /srv only exists on some systems. Values are written
+	// with '/', as a backslash is an escape in a configuration file.
+	root := tempDir(t)
+	for _, d := range []string{"a/b", "ab"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, d), 0o755))
+	}
+	s := filepath.ToSlash(root)
+	a := filepath.Join(root, "a")
+
 	for _, tc := range []struct {
 		name   string
 		global string
@@ -712,18 +740,18 @@ func TestEnvSafeDirectory(t *testing.T) {
 		dir    string
 		want   bool
 	}{
-		{"not listed", "", "", nil, "/srv/a", false},
-		{"listed", "[safe]\n\tdirectory = /srv/a\n", "", nil, "/srv/a", true},
-		{"other directory listed", "[safe]\n\tdirectory = /srv/a\n", "", nil, "/srv/b", false},
-		{"no prefix match", "[safe]\n\tdirectory = /srv/a\n", "", nil, "/srv/ab", false},
-		{"star", "[safe]\n\tdirectory = *\n", "", nil, "/srv/a", true},
-		{"trailing star", "[safe]\n\tdirectory = /srv/*\n", "", nil, "/srv/a/b", true},
-		{"trailing star, the directory itself", "[safe]\n\tdirectory = /srv/*\n", "", nil, "/srv", false},
-		{"empty value resets", "[safe]\n\tdirectory = *\n\tdirectory =\n", "", nil, "/srv/a", false},
-		{"listed after a reset", "[safe]\n\tdirectory =\n\tdirectory = /srv/a\n", "", nil, "/srv/a", true},
-		{"repository config ignored", "", "[safe]\n\tdirectory = *\n", nil, "/srv/a", false},
-		{"command line", "", "", []gitconfig.CommandEntry{{Key: "safe.directory", Value: "/srv/a"}}, "/srv/a", true},
-		{"command line resets the global list", "[safe]\n\tdirectory = *\n", "", []gitconfig.CommandEntry{{Key: "safe.directory", Value: ""}}, "/srv/a", false},
+		{"not listed", "", "", nil, a, false},
+		{"listed", "[safe]\n\tdirectory = " + s + "/a\n", "", nil, a, true},
+		{"other directory listed", "[safe]\n\tdirectory = " + s + "/a\n", "", nil, filepath.Join(root, "a", "b"), false},
+		{"no prefix match", "[safe]\n\tdirectory = " + s + "/a\n", "", nil, filepath.Join(root, "ab"), false},
+		{"star", "[safe]\n\tdirectory = *\n", "", nil, a, true},
+		{"trailing star", "[safe]\n\tdirectory = " + s + "/*\n", "", nil, filepath.Join(root, "a", "b"), true},
+		{"trailing star, the directory itself", "[safe]\n\tdirectory = " + s + "/*\n", "", nil, root, false},
+		{"empty value resets", "[safe]\n\tdirectory = *\n\tdirectory =\n", "", nil, a, false},
+		{"listed after a reset", "[safe]\n\tdirectory =\n\tdirectory = " + s + "/a\n", "", nil, a, true},
+		{"repository config ignored", "", "[safe]\n\tdirectory = *\n", nil, a, false},
+		{"command line", "", "", []gitconfig.CommandEntry{{Key: "safe.directory", Value: s + "/a"}}, a, true},
+		{"command line resets the global list", "[safe]\n\tdirectory = *\n", "", []gitconfig.CommandEntry{{Key: "safe.directory", Value: ""}}, a, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := tempDir(t)
@@ -741,8 +769,8 @@ func TestEnvSafeDirectory(t *testing.T) {
 	t.Run("listed through an include", func(t *testing.T) {
 		dir := tempDir(t)
 		writeFile(t, filepath.Join(dir, "global"), "[include]\n\tpath = inc\n")
-		writeFile(t, filepath.Join(dir, "inc"), "[safe]\n\tdirectory = /srv/a\n")
-		got, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "global")}}.SafeDirectory("/srv/a")
+		writeFile(t, filepath.Join(dir, "inc"), "[safe]\n\tdirectory = "+s+"/a\n")
+		got, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "global")}}.SafeDirectory(a)
 		require.NoError(t, err)
 		assert.True(t, got)
 	})
@@ -795,7 +823,7 @@ func TestEnvWritePath(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, filepath.Clean(got))
+			assert.Equal(t, filepath.Clean(tc.want), filepath.Clean(got))
 		})
 	}
 }
@@ -841,6 +869,24 @@ func TestDiscover(t *testing.T) {
 		assert.Equal(t, []string{filepath.Join(xdg, "git", "config"), filepath.Join(home, ".gitconfig")}, env.GlobalConfig)
 	})
 
+	t.Run("no home directory", func(t *testing.T) {
+		// As git: no ~/.gitconfig, the XDG file only if XDG_CONFIG_HOME
+		// says where it is.
+		cleanGitEnv(t)
+		unsetenv(t, "HOME")
+		unsetenv(t, "USERPROFILE")
+		env, err := gitconfig.Discover("")
+		require.NoError(t, err)
+		assert.Empty(t, env.Home)
+		assert.Empty(t, env.GlobalConfig)
+
+		xdg := tempDir(t)
+		t.Setenv("XDG_CONFIG_HOME", xdg)
+		env, err = gitconfig.Discover("")
+		require.NoError(t, err)
+		assert.Equal(t, []string{filepath.Join(xdg, "git", "config")}, env.GlobalConfig)
+	})
+
 	t.Run("GIT_CONFIG_GLOBAL", func(t *testing.T) {
 		home := cleanGitEnv(t)
 		t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "g"))
@@ -884,6 +930,27 @@ func TestDiscover(t *testing.T) {
 		}, env.Command)
 	})
 
+	t.Run("GIT_CONFIG_COUNT", func(t *testing.T) {
+		for _, tc := range []struct {
+			count string
+			want  int
+		}{
+			{"", 0},
+			{"0", 0},
+			{"1", 1},
+		} {
+			t.Run(strconv.Quote(tc.count), func(t *testing.T) {
+				cleanGitEnv(t)
+				t.Setenv("GIT_CONFIG_COUNT", tc.count)
+				t.Setenv("GIT_CONFIG_KEY_0", "a.k")
+				t.Setenv("GIT_CONFIG_VALUE_0", "v")
+				env, err := gitconfig.Discover("")
+				require.NoError(t, err)
+				assert.Len(t, env.Command, tc.want)
+			})
+		}
+	})
+
 	t.Run("malformed command line", func(t *testing.T) {
 		for _, tc := range []struct {
 			name string
@@ -891,6 +958,13 @@ func TestDiscover(t *testing.T) {
 		}{
 			{"bogus count", map[string]string{"GIT_CONFIG_COUNT": "x"}},
 			{"negative count", map[string]string{"GIT_CONFIG_COUNT": "-1"}},
+			{"sign only", map[string]string{"GIT_CONFIG_COUNT": "+"}},
+			{"space only", map[string]string{"GIT_CONFIG_COUNT": " "}},
+			// Accepted by git.
+			{"plus sign", map[string]string{"GIT_CONFIG_COUNT": "+1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}},
+			{"leading space", map[string]string{"GIT_CONFIG_COUNT": " 1", "GIT_CONFIG_KEY_0": "a.k", "GIT_CONFIG_VALUE_0": "v"}},
+			{"negative zero", map[string]string{"GIT_CONFIG_COUNT": "-0"}},
+			{"too many", map[string]string{"GIT_CONFIG_COUNT": "2147483648"}},
 			{"missing key", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_VALUE_0": "v"}},
 			{"missing value", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "a.k"}},
 			{"bad parameters", map[string]string{"GIT_CONFIG_PARAMETERS": "'a.k"}},
@@ -964,10 +1038,9 @@ func TestEnvUpdateFile(t *testing.T) {
 	t.Run("edit", func(t *testing.T) {
 		path := filepath.Join(tempDir(t), "config")
 		writeFile(t, path, "# keep\n[a]\n\tk = v\n")
-		before, err := os.Stat(path)
-		require.NoError(t, err)
+		before := statNow(t, path)
 
-		err = env.UpdateFile(path, func(f *gitconfig.File) error {
+		err := env.UpdateFile(path, func(f *gitconfig.File) error {
 			e, ok := f.Config().Get("a.k")
 			require.True(t, ok)
 			assert.Equal(t, gitconfig.Origin{Scope: gitconfig.ScopeFile, File: path, Line: 3}, e.Origin)
@@ -995,10 +1068,9 @@ func TestEnvUpdateFile(t *testing.T) {
 	t.Run("unchanged content not written", func(t *testing.T) {
 		path := filepath.Join(tempDir(t), "config")
 		writeFile(t, path, "[a]\n    k=v\n")
-		before, err := os.Stat(path)
-		require.NoError(t, err)
+		before := statNow(t, path)
 
-		err = env.UpdateFile(path, func(f *gitconfig.File) error {
+		err := env.UpdateFile(path, func(f *gitconfig.File) error {
 			return f.Set("a.k", "v")
 		})
 		require.NoError(t, err)
@@ -1012,10 +1084,9 @@ func TestEnvUpdateFile(t *testing.T) {
 	t.Run("edits undone are not written", func(t *testing.T) {
 		path := filepath.Join(tempDir(t), "config")
 		writeFile(t, path, "[a]\n\tk = v\n")
-		before, err := os.Stat(path)
-		require.NoError(t, err)
+		before := statNow(t, path)
 
-		err = env.UpdateFile(path, func(f *gitconfig.File) error {
+		err := env.UpdateFile(path, func(f *gitconfig.File) error {
 			if err := f.Set("a.j", "w"); err != nil {
 				return err
 			}
@@ -1193,6 +1264,17 @@ func TestEnvUpdateFile(t *testing.T) {
 	})
 }
 
+// statNow returns the FileInfo of path with the file's identity read now.
+// On Windows, os.Stat leaves it to be read by os.SameFile, through the path,
+// which by then may name another file.
+func statNow(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	fi, err := os.Stat(path)
+	require.NoError(t, err)
+	os.SameFile(fi, fi)
+	return fi
+}
+
 // symlink creates a symbolic link, or skips the test where the platform or
 // the user cannot (Windows without the privilege).
 func symlink(t *testing.T, target, link string) {
@@ -1209,7 +1291,8 @@ func TestEnvUpdateFileSymlinks(t *testing.T) {
 		t.Helper()
 		got, err := os.Readlink(link)
 		require.NoError(t, err)
-		assert.Equal(t, target, got)
+		// os.Symlink writes the target with the platform's separators.
+		assert.Equal(t, filepath.FromSlash(target), got)
 	}
 
 	t.Run("link followed and kept", func(t *testing.T) {
@@ -1366,6 +1449,204 @@ func TestEnvUpdateScope(t *testing.T) {
 			assert.Equal(t, gitconfig.ErrNoScope, err)
 			assert.False(t, called)
 		}
+	})
+}
+
+// withTimeout fails the test if fn does not return within a few seconds:
+// git hangs reading a FIFO, this library must not.
+func withTimeout(t *testing.T, fn func() error) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("blocked on a FIFO")
+		return nil
+	}
+}
+
+// TestEnvUnreadable checks that a global file that cannot be
+// read for lack of permission is skipped, any other one is an error.
+func TestEnvUnreadable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 does not make a file unreadable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	dir := tempDir(t)
+	unreadable := filepath.Join(dir, "unreadable")
+	writeFile(t, unreadable, "[a]\n\tk = v\n")
+	require.NoError(t, os.Chmod(unreadable, 0))
+	readable := filepath.Join(dir, "readable")
+	writeFile(t, readable, "[a]\n\tj = w\n")
+
+	t.Run("global file skipped", func(t *testing.T) {
+		env := gitconfig.Env{GlobalConfig: []string{unreadable, readable}}
+		c, err := env.Load()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a.j=w"}, list(slices.Collect(c.All())))
+
+		c, err = env.LoadProtected()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a.j=w"}, list(slices.Collect(c.All())))
+
+		// As `git config --global --get`, which reads it as empty.
+		c, err = env.LoadScope(gitconfig.ScopeGlobal)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a.j=w"}, list(slices.Collect(c.All())))
+	})
+
+	t.Run("system file skipped by LoadProtected only", func(t *testing.T) {
+		env := gitconfig.Env{SystemConfig: unreadable}
+		_, err := env.Load()
+		require.ErrorIs(t, err, fs.ErrPermission)
+
+		c, err := env.LoadProtected()
+		require.NoError(t, err)
+		assert.Empty(t, slices.Collect(c.All()))
+	})
+
+	t.Run("include is an error", func(t *testing.T) {
+		global := filepath.Join(dir, "global")
+		writeFile(t, global, "[include]\n\tpath = unreadable\n")
+		_, err := gitconfig.Env{GlobalConfig: []string{global}}.Load()
+		require.ErrorIs(t, err, fs.ErrPermission)
+	})
+
+	t.Run("file is an error", func(t *testing.T) {
+		_, err := gitconfig.Env{}.LoadFile(unreadable)
+		require.ErrorIs(t, err, fs.ErrPermission)
+	})
+}
+
+func TestEnvFIFO(t *testing.T) {
+	// Windows has no FIFO to open by name. The mkfifo of MSYS2, which Git
+	// for Windows puts on PATH, makes a file only MSYS programs take for a
+	// FIFO: Go reads it as a regular file.
+	if runtime.GOOS == "windows" {
+		t.Skip("no FIFO to open by name on Windows")
+	}
+	if _, err := exec.LookPath("mkfifo"); err != nil {
+		t.Skip("no mkfifo: no FIFO to open by name")
+	}
+	dir := tempDir(t)
+	fifo := filepath.Join(dir, "fifo")
+	require.NoError(t, exec.Command("mkfifo", fifo).Run())
+
+	t.Run("include", func(t *testing.T) {
+		main := filepath.Join(dir, "main")
+		writeFile(t, main, "[include]\n\tpath = fifo\n")
+		err := withTimeout(t, func() error {
+			_, err := gitconfig.Env{GlobalConfig: []string{main}}.Load()
+			return err
+		})
+		require.ErrorIs(t, err, gitconfig.ErrNotRegular)
+	})
+
+	t.Run("configuration file", func(t *testing.T) {
+		err := withTimeout(t, func() error {
+			_, err := gitconfig.Env{GlobalConfig: []string{fifo}}.Load()
+			return err
+		})
+		require.ErrorIs(t, err, gitconfig.ErrNotRegular)
+	})
+
+	t.Run("update", func(t *testing.T) {
+		err := withTimeout(t, func() error {
+			return gitconfig.Env{}.UpdateFile(fifo, func(f *gitconfig.File) error { return nil })
+		})
+		require.ErrorIs(t, err, gitconfig.ErrNotRegular)
+		assert.NoFileExists(t, fifo+".lock")
+	})
+}
+
+// TestEnvUpdateFilePermissions checks that the permissions of the file are
+// kept exactly, whatever the umask: with any umask, the lock file is created
+// with fewer bits than 0666.
+func TestEnvUpdateFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix permissions on Windows")
+	}
+	for _, mode := range []os.FileMode{0o600, 0o640, 0o664, 0o666, 0o755} {
+		t.Run(mode.String(), func(t *testing.T) {
+			path := filepath.Join(tempDir(t), "config")
+			writeFile(t, path, "[a]\n\tk = v\n")
+			require.NoError(t, os.Chmod(path, mode))
+
+			err := gitconfig.Env{}.UpdateFile(path, func(f *gitconfig.File) error {
+				return f.Set("a.k", "w")
+			})
+			require.NoError(t, err)
+			fi, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.Equal(t, mode, fi.Mode().Perm())
+		})
+	}
+
+	t.Run("new file", func(t *testing.T) {
+		// As any new file: 0666 minus the umask.
+		dir := tempDir(t)
+		ref, err := os.OpenFile(filepath.Join(dir, "ref"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		require.NoError(t, err)
+		require.NoError(t, ref.Close())
+		want, err := os.Stat(filepath.Join(dir, "ref"))
+		require.NoError(t, err)
+
+		path := filepath.Join(dir, "config")
+		err = gitconfig.Env{}.UpdateFile(path, func(f *gitconfig.File) error {
+			return f.Set("a.k", "v")
+		})
+		require.NoError(t, err)
+		fi, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, want.Mode().Perm(), fi.Mode().Perm())
+	})
+}
+
+// TestEnvUpdateFileHeld checks that UpdateFile waits for a file another
+// process holds for a moment, and gives up if it holds it for long. On
+// Windows, a file open without FILE_SHARE_DELETE, as os.Open opens it,
+// cannot be replaced. A file opened without sharing at all cannot be read
+// either; that error is checked by TestRetryTransient.
+func TestEnvUpdateFileHeld(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to replace an open file")
+	}
+	set := func(f *gitconfig.File) error { return f.Set("a.k", "w") }
+	hold := func(t *testing.T, path string) *os.File {
+		f, err := os.Open(path)
+		require.NoError(t, err)
+		t.Cleanup(func() { f.Close() })
+		return f
+	}
+
+	t.Run("released", func(t *testing.T) {
+		path := filepath.Join(tempDir(t), "config")
+		writeFile(t, path, "[a]\n\tk = v\n")
+		f := hold(t, path)
+		time.AfterFunc(200*time.Millisecond, func() { f.Close() })
+
+		require.NoError(t, gitconfig.Env{}.UpdateFile(path, set))
+		assert.Equal(t, "[a]\n\tk = w\n", readFile(t, path))
+		assert.NoFileExists(t, path+".lock")
+	})
+
+	t.Run("kept", func(t *testing.T) {
+		path := filepath.Join(tempDir(t), "config")
+		writeFile(t, path, "[a]\n\tk = v\n")
+		hold(t, path)
+
+		start := time.Now()
+		err := gitconfig.Env{}.UpdateFile(path, set)
+		var fe *gitconfig.FileError
+		require.ErrorAs(t, err, &fe)
+		assert.NotErrorIs(t, err, gitconfig.ErrLocked)
+		assert.GreaterOrEqual(t, time.Since(start), time.Second, "given up without retrying")
+		assert.Equal(t, "[a]\n\tk = v\n", readFile(t, path))
+		assert.NoFileExists(t, path+".lock")
 	})
 }
 

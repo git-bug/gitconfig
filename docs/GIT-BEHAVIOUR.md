@@ -29,11 +29,13 @@ generalising any of them.
 | `[CORE]` `Editor = vim` | `core.editor` | `vim` |
 | `[a]` `k = "x;y"` | `a.k` | `x;y` |
 | `[a]` `k` | `a.k` | empty string; as `--bool`: `true` |
+| `[a]` `k = x` NUL `y` | `a.k` | `x`: the value is cut at the NUL *(2.47.3)* |
 | `[a "s\"q"]` `k = v` | `a.s"q.k` | `v` |
 | `[url "https://a.b/"]` `insteadOf = gh:` | `url.https://a.b/.insteadof` | `gh:` (subsection = everything between the first and the last dot) |
 | BOM + `[a]\r\n\tk = v\r\n` | `a.k` | `v` (BOM skipped, CR stripped) |
 | `[a]` `k = v` | `--get a.missing` | exit status 1, no output |
 | `[a ""]` `k = v` `[a]` `k = w` | `--list` | `a..k=v` `a.k=w` (an empty subsection is distinct from none) *(2.47.3)* |
+| `k = v` `[a]` `j = w` | `--list` | `k=v` `a.j=w`: an entry before any header is read under a key with no section, which no command can ask for *(2.47.3)* — this library leaves it out of `Config` (C2) |
 
 ### Types
 
@@ -43,18 +45,23 @@ generalising any of them.
 | `0`, `off`, `no`, empty string | `false` |
 | no `=` at all | `true` |
 | `maybe` | `fatal: bad boolean config value 'maybe' for 'a.k'` |
+| `-2147483648` | `fatal: bad boolean config value …` *(2.47.3)*; `true` *(2.55.0)*: git 2.47.3 rejects the minimum of the range, a bug fixed in a later release — this library accepts it |
+| `yeſ` (long s) | `fatal: bad boolean config value …`: only ASCII letters fold *(2.47.3)* |
 
 | Value | `--int` |
 |---|---|
 | `1k` / `1K`, `1m`, `1g` | `1024`, `1048576`, `1073741824` |
+| `010`, `0x10`, `" 5"` (quoted) | `8`, `16`, `5`: a leading `0` means octal, `0x` hexadecimal *(2.47.3)* |
 | `3x` | `fatal: bad numeric config value '3x' for 'a.k' in file f: invalid unit` |
 | `99999999999999999999` | `fatal: bad numeric config value '…' for 'a.k' in file f: out of range` |
+| `-9223372036854775808` | `… out of range` *(2.47.3)*; `-9223372036854775808` *(2.55.0)*: the same bug, fixed in a later release — this library accepts it |
+| `1K` (Kelvin sign) | `… invalid unit` *(2.47.3)* |
 | no `=` at all | `fatal: bad numeric config value '' for 'a.k' in file f: invalid unit` *(2.47.3)* |
 
 | Value | `--type=path` |
 |---|---|
 | `~/x` | `$HOME/x` |
-| `%(prefix)/x` | `/usr/x` (git's compiled-in prefix, unknown to a library: an error here until C9) |
+| `%(prefix)/x` | `/usr/x`: the git binary's prefix, set at build time or, for a relocatable build, from the executable's location (an error here until C9) |
 | no `=` at all | `error: missing value for 'a.k'`, then `fatal: bad config line 2` *(2.47.3)* |
 
 ### Keys
@@ -84,6 +91,7 @@ Key names: ASCII letters, digits and `-`, starting with a letter.
 | `[a]` `k` (implicit) | `a.k false` | `\tk = false` |
 | `[a]` `k = v` | `a.k v` (same value) | content unchanged, but the file **is** rewritten (new mtime) |
 | `[a]` `␣␣␣␣k=v` | `a.k v` (same value) | `\tk = v` — the line is rewritten in git's format anyway (this library keeps it, E7) *(2.47.3)* |
+| empty file | `.sub.k v` | `[ "sub"]` / `\tk = v`, read back as `.sub.k` *(2.47.3)* — this library refuses the key in edits, reads it |
 | empty file | `a..k v` | `[a ""]` / `\tk = v`; a later `a.k w` adds a separate `[a]` *(2.47.3)* |
 | new subsection `we"ird\\x` | `remote.<it>.url u` | `[remote "we\"ird\\\\x"]` — `"` and `\` escaped in the header |
 
@@ -102,8 +110,9 @@ Key names: ASCII letters, digits and `-`, starting with a letter.
 | newline inside | `multi\nline` |
 | empty | `k = ` (nothing after `= `) |
 
-Observed rule: surround with quotes when the value starts or ends with a
-space or contains `#` or `;`; always escape `\`, `"`, tab and newline.
+Rule: surround with quotes when the value
+starts or ends with a space or contains `#`, `;` or a CR; always escape
+`\`, `"`, tab and newline.
 
 ### Multiple values and missing keys
 
@@ -112,7 +121,7 @@ space or contains `#` or `;`; always escape `\`, `"`, tab and newline.
 | `k = 1` `k = 2` | `--unset a.k` | `warning: a.k has multiple values`, exit 5, file unchanged |
 | `k = 1` `k = 2` | `a.k 3` | `error: cannot overwrite multiple values with a single value`, exit 5, unchanged |
 | `[a]` `k = 1` `[a]` `k = 2` (two sections) | `a.k 3` | same error — values across sections count together |
-| `k = 1` `k = 2` `k = 3` | `--replace-all a.k X '^[12]$'` | `k = X` `k = 3` — matches collapse into one, at the first match's position |
+| `k = 1` `k = 2` `k = 3` | `--replace-all a.k X '^[12]$'` | `k = X` `k = 3` — matches collapse into one, at the last match's position |
 | `k = 1` | `--replace-all a.k X '^9$'` (no match) | `k = 1` `k = X` — added *(2.47.3)* |
 | `k = 1` | `--add a.k 2` | `k = 1` `k = 2` |
 | `k = v` | `--unset a.missing` | exit 5, unchanged |
@@ -136,6 +145,11 @@ space or contains `#` or `;`; always escape `\`, `"`, tab and newline.
 | `[c "s"]` `z = 1` | `--rename-section c.s 'c.x⏎y'` | exit 0, writes `[c "x⏎y"]`, which git then refuses: `bad config line 1` *(2.47.3)* — this library refuses the name (X1) |
 | `[a]` `k = 1` `[b]` `k = 2` | `--rename-section a b` | `[b]` `k = 1` `[b]` `k = 2`, exit 0: an existing target is not checked, both sections read as one (`--get-all b.k` → `1` `2`); the same for subsections *(2.47.3)* |
 | `# top` `[a]` `# c` `k = v` `[b]`… | `--remove-section a` | `# top` `[b]`… — header, inner comment and keys removed; the comment before the header kept |
+| `k = v` `[a]` `j = w` | `--unset a.j` | `k = v`: the entry before any header does not keep the section *(2.47.3)* |
+| `[a] [b]` `k = v` | `--rename-section a z` | `[z]` `\t[b]` `k = v`: the rest of the header's line moves to the next line *(2.47.3)* |
+| `[a] [b]` `k = v` `[c]`… | `--remove-section b` | `fatal: no such section: b`: git scans lines, and only a header starting its line is seen *(2.47.3)* — this library finds headers by parsing and removes `[b]` (X1) |
+| BOM + `[a]` `k = v` `[b]`… | `--remove-section a` | `fatal: no such section: a`: the BOM hides the header from the line scan *(2.47.3)* — this library removes it, keeping the BOM (X1) |
+| `[a]` `k = x\` ⏎ `[b]` `z = 1` | `--remove-section b` | `[a]` `k = x\`, exit 0: the line `[b]`, part of the value `x[b]`, is taken for a header, and `a.z` is removed with it; `--rename-section b c` changes the value to `x[c]` *(2.47.3)* — this library finds no section `b` (X1) |
 
 Observed rule for E5: after an unset, an empty section is removed unless a
 comment line lies between the previous entry or header line (or the start of
@@ -148,11 +162,18 @@ the file) and the next section header.
   not apply).
 - Symbolic links are followed: `git config -f link a.k w` with `link -> real`
   edits `real`; `link` stays a symlink.
+- A chain of 7 links `l0 -> l1 -> … -> l6 -> real`: git follows 5, then
+  replaces `l5` with a regular file holding the edit; `real` is unchanged
+  *(2.47.3)* — this library refuses the edit (too many levels of symbolic
+  links).
 - With `include.path` in `~/.gitconfig`, `git config --global user.name x`
   appends to `~/.gitconfig` itself; the included file is untouched.
 - A held lock: `error: could not lock config file .git/config: File exists`,
   exit 255, immediately (no waiting).
 - Each write replaces the file through a rename (new inode).
+- A file holding only a UTF-8 BOM (as Windows Notepad saves an empty file):
+  `git config -f f a.k v` writes `[a]` `\tk = v` *before* the BOM, and the
+  file no longer parses *(2.47.3)* — this library keeps the BOM first (X1).
 
 ## Scopes
 
@@ -162,6 +183,7 @@ Run with an isolated `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_NOSYSTEM=1`.
 |---|---|
 | `user.name` in both `$XDG_CONFIG_HOME/git/config` and `~/.gitconfig` | both read, XDG first; `~/.gitconfig` wins. Keys only in the XDG file are still visible (`--show-scope` reports `global`). |
 | `GIT_CONFIG_GLOBAL=<file>` | only that file for global scope |
+| `HOME` unset, `XDG_CONFIG_HOME` set | the XDG file is read, no `~/.gitconfig`; with neither, no global file and no error *(2.47.3)* |
 | `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=x` | value from scope `command` |
 | `git -c user.name=x` | scope `command` |
 | `extensions.worktreeConfig = true` + `git config --worktree` | value in `.git/config.worktree`, scope `worktree`, overrides local |
@@ -169,7 +191,11 @@ Run with an isolated `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_NOSYSTEM=1`.
 | `git config -f f --show-scope --show-origin --list` | `command	file:f	a.k=v` — files read with `-f` have scope `command` |
 | no `extensions.worktreeConfig`, single worktree, `git config --worktree --show-scope --list` | the entries of `.git/config`, scope `local` *(2.47.3)* |
 | no `extensions.worktreeConfig`, two worktrees, `git config --worktree --list` | `fatal: --worktree cannot be used with multiple working trees unless the config extension worktreeConfig is enabled…`, exit 128 *(2.47.3)* |
+| `user.name` in both the XDG file and `~/.gitconfig`, `git config --global --list` (with or without `--includes`) | only `~/.gitconfig` is read: `--global` reads the file it writes to; the XDG file only if `~/.gitconfig` does not exist *(2.47.3)* — `LoadScope(ScopeGlobal)` reads both, as `Load` does |
 | missing `~/.gitconfig` / `config.worktree` / `-f` file, `--get a.k` | exit 1, no output: an absent file reads as empty *(2.47.3)* |
+| `~/.gitconfig` not readable (`chmod 000`), `git config --list` or `--global --get a.k` | a warning, then the file reads as empty; `--global --list` fails *(2.47.3)* |
+| system file not readable, `git config --list` | `fatal: unable to access '<file>': Permission denied`, exit 128 *(2.47.3)* |
+| `GIT_CONFIG_COUNT=+1`, `' 1'`, `-0` | accepted: a sign and leading whitespace are allowed *(2.47.3)* — this library takes only digits |
 | missing `~/.gitconfig` / `config.worktree` / `-f` file, `--list` | `fatal: unable to read config file '<file>': No such file or directory`, exit 128 *(2.47.3)* |
 | outside a repository, `git config --local --list` | `fatal: --local can only be used inside a git repository`, exit 128 *(2.47.3)* |
 
@@ -211,3 +237,5 @@ the same results.
 | `onbranch:main`, `onbranch:ma*` | yes |
 | `onbranch:other` | no |
 | `hasconfig:remote.*.url:https://example.com/**` | no until a matching remote is configured, then yes |
+| `git -c 'includeIf.gitdir:./.path=…'` | `error: relative config include conditionals must come from files`, then git goes on without the include, exit 0 *(2.47.3)* — this library fails with `ErrNotAbsolute`, having no one to warn |
+| `gitdir:C:/x/link/`, `GIT_DIR=C:\x\link\proj\.git` with `link` a symbolic link to `work` (Windows) | **no**, while `gitdir:C:/x/work/` (the real path) matches *(2.55.0.windows.5)* — this library compares both paths with `/` and matches |

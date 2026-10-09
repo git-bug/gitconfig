@@ -22,7 +22,8 @@ package gitconfig
 // spelled as given.
 //
 // Edits fail with ErrInvalidKey if a key or section name is one git rejects,
-// and with ErrInvalidValue if a value contains a NUL byte. Removing something
+// or a key with an empty section (".sub.name", which git reads from a
+// header [ "sub"]), and with ErrInvalidValue if a value contains a NUL byte. Removing something
 // that is absent is not an error: the methods report what they removed.
 //
 // An edit cannot inject anything: whatever the key, subsection and value,
@@ -35,7 +36,9 @@ type File struct {
 
 // Parse parses a configuration file. name is used in errors and in the
 // Origin of entries, which have ScopeFile. A file git rejects is a
-// *SyntaxError.
+// *SyntaxError. An entry before any section header, which git reads under a
+// key no command can ask for, is kept in the file but is not an entry of
+// Config.
 //
 // data may come from anyone (a .gitmodules blob from a remote): Parse never
 // panics, and its time and memory are linear in len(data).

@@ -1,6 +1,8 @@
 package gitconfig
 
-import "iter"
+import (
+	"iter"
+)
 
 // Config is an immutable, ordered set of entries, from a single file or from
 // several scopes. It is safe for concurrent use. A nil *Config is empty.
@@ -78,7 +80,7 @@ func (c *Config) Int(key string, def int64) (int64, error) {
 // Path returns the last value for key as a path, as Entry.Path does with
 // home, usually Env.Home. If key is absent, def is expanded the same way. A
 // value or a def that cannot be expanded is a *ValueError (for def, its Entry
-// has Value def and a zero Origin); the result is then def as given.
+// has the key, Value def and a zero Origin); the result is then def as given.
 func (c *Config) Path(key, home, def string) (string, error) {
 	panic("not implemented")
 }
@@ -111,7 +113,9 @@ type Origin struct {
 
 	// File is the file that holds the entry, possibly an included one, as
 	// git opened it: an include's relative path is joined to the including
-	// file's directory and not cleaned. "" for git -c.
+	// file's directory and not cleaned. "" for git -c. On Windows, the
+	// separators are those of the paths given, where git writes some
+	// paths with '/'.
 	File string
 
 	Line int // 1-based; 0 for git -c
@@ -133,8 +137,9 @@ func (e Entry) Int() (int64, error) {
 
 // Path interprets the value as a path, as git does for `--type=path` and for
 // include paths: a leading "~/" is replaced by home, usually Env.Home. A "~/"
-// with an empty home, a leading "%(prefix)/" (git's installation directory,
-// which only git knows) and an implicit value are a *ValueError. Config.Path
+// with an empty home, a leading "%(prefix)/" (the prefix of the git binary,
+// which depends on how it was built) and an implicit value are a
+// *ValueError. Config.Path
 // does the same for a key.
 func (e Entry) Path(home string) (string, error) {
 	panic("not implemented")
@@ -152,19 +157,4 @@ type Key struct {
 	HasSubsection bool
 
 	Name string
-}
-
-// ParseKey parses "section.name" or "section.subsection.name" as git does:
-// the subsection is everything between the first and the last dot, section
-// and name are lowered. A key git rejects is ErrInvalidKey, including a
-// subsection containing a newline or a NUL byte. Reads treat an invalid key
-// as absent; only ParseKey and edits report it.
-func ParseKey(s string) (Key, error) {
-	panic("not implemented")
-}
-
-// String returns the key as "section.name" or "section.subsection.name"
-// ("section..name" for an empty subsection).
-func (k Key) String() string {
-	panic("not implemented")
 }

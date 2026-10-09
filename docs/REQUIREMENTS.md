@@ -4,17 +4,19 @@ Priorities: **MUST** blocks the first release, **SHOULD** is expected soon
 after, **LATER** is wanted eventually, **WON'T** is out of scope on purpose.
 
 The reference is the `git` binary. Behaviour marked *verified* has a test
-vector in [GIT-BEHAVIOUR.md](GIT-BEHAVIOUR.md).
+vector in [GIT-BEHAVIOUR.md](GIT-BEHAVIOUR.md). Where the library departs
+from git, and the principles that decide it, are in
+[COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## 1. Correctness — git is the specification
 
 | ID | Requirement | Prio |
 |---|---|---|
 | C1 | Parsing matches git: section/subsection/key syntax and case rules, legacy `[a.B]` headers, an empty subsection (`[a ""]`, key `a..k`) distinct from none, quoting and escapes, `#`/`;` comments, continuation lines, implicit (`=`-less) values, entries on the header line, BOM, CRLF. *verified* | MUST |
-| C2 | A file git rejects is rejected, with file name and line number. A file git accepts is accepted. No silent skipping of lines. | MUST |
+| C2 | A file git rejects is rejected, with file name and line number. A file git accepts is accepted. No silent skipping of lines, with one exception: an entry before any section header, which git reads under a key with no section that no command can ask for, is kept in the file (edits handle it as git does) but is not part of `Config`. A header whose subsection holds a NUL byte, which git cuts at the NUL, is rejected. *verified* | MUST |
 | C3 | Lookup of a single value returns the **last** value, across files and scopes, as git does. *verified* | MUST |
 | C4 | Multi-valued keys keep all values in file order. | MUST |
-| C5 | Typed interpretation matches git: bool (`true/yes/on/1/any non-zero int`, `false/no/off/0/""`, implicit = true, case-insensitive, anything else is an error), int with `k/m/g` suffixes and range errors, path (`~/`; `%(prefix)/` is an error, as only git knows the directory it was installed into, see C9). Every read treats an invalid key as absent; only edits and `ParseKey` report it (`ErrInvalidKey`). A typed getter that fails returns its default. `Config` and `Entry` are plain data: `Config.Path` and `Entry.Path` take the home directory, and `Config.Path` expands its default too. *verified* | MUST |
+| C5 | Typed interpretation matches git: bool (`true/yes/on/1/any non-zero int`, `false/no/off/0/""`, implicit = true, case-insensitive, anything else is an error), int with `k/m/g` suffixes and range errors, path (`~/`; `%(prefix)/` is an error, as it depends on how the git binary was built and is recorded nowhere a library can read, see C9). Every read treats an invalid key as absent; only edits and `ParseKey` report it (`ErrInvalidKey`). A typed getter that fails returns its default. `Config` and `Entry` are plain data: `Config.Path` and `Entry.Path` take the home directory, and `Config.Path` expands its default too. *verified* | MUST |
 | C6 | Typed interpretation is on demand: a value that is not a valid bool only errors when read as a bool, as in git. Loading never fails because of a value's type. | MUST |
 | C7 | Colour and expiry-date types. | LATER |
 | C8 | `url.<base>.insteadOf` / `pushInsteadOf` longest-match rewriting and `<section>.<url>.<key>` URL matching (`git config --get-urlmatch`, used by `http.<url>.*`). | SHOULD |
@@ -86,7 +88,7 @@ and callers must be able to tell whether to trust it.
 
 | ID | Requirement | Prio |
 |---|---|---|
-| X1 | No injection through edits: whatever key, subsection and value an edit is given, the edited file parses to the previous entries with exactly that change. A subsection containing a newline or NUL is rejected (as by git). Fuzzed: parse ∘ edit ∘ parse. | MUST |
+| X1 | No injection through edits: whatever key, subsection and value an edit is given, the edited file parses to the previous entries with exactly that change. A subsection containing a newline or NUL is rejected (as by git). Sections to remove or rename are found by parsing, where git scans lines: git takes a line starting with `[` inside a continued value for a header (removing the entries after it, or rewriting the value), and misses a header after a BOM or after another header on the same line. A file holding only a BOM keeps it first, where git writes the new section before it and the file no longer parses. *verified* Fuzzed: parse ∘ edit ∘ parse, for key and section edits. | MUST |
 | X2 | Parsing untrusted input never panics and is linear in time and memory. Parser and edits are fuzzed continuously. | MUST |
 | X3 | Bounded loads: git's include depth limit, plus at most 1000 files and 64 MiB read by one load, counting every read (an include fan-out of 10 per level makes git read 10ⁿ files from a few KB, *verified*); configuration files and includes must be regular files (git hangs on a FIFO and fails on a directory, *verified*). A deliberate improvement over git, reached only by files built to reach it. | MUST |
 | X4 | Errors do not leak or spoof: a syntax error never quotes the file's content (an include may point at a secret file), values in messages are quoted with `%q` (no terminal escape sequences). | MUST |
@@ -100,6 +102,7 @@ and callers must be able to tell whether to trust it.
   top, outside the core.
 - No support for non-git config dialects or arbitrary formatting choices
   (gopasspw/gitconfig issues #16 and #18).
-- No invention of behaviour git does not have, except E7, E10 and X3.
+- No invention of behaviour git does not have, except the departures listed
+  in [COMPATIBILITY.md](COMPATIBILITY.md).
 - No `git config --edit`-style interactive features, no `--global` writes
   without the caller choosing the file.
