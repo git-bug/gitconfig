@@ -139,15 +139,11 @@ func (e Env) Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if e.SystemConfig != "" {
-		if err := l.loadFile(e.SystemConfig, ScopeSystem, false); err != nil {
-			return nil, err
-		}
+	if err := l.system(false); err != nil {
+		return nil, err
 	}
-	for _, path := range e.GlobalConfig {
-		if err := l.loadFile(path, ScopeGlobal, true); err != nil {
-			return nil, err
-		}
+	if err := l.global(); err != nil {
+		return nil, err
 	}
 	if l.repo != nil {
 		start := len(l.entries)
@@ -170,6 +166,26 @@ func (e Env) Load() (*Config, error) {
 	return l.config(), nil
 }
 
+// system loads the system scope, if any. If skipUnreadable, a file that
+// cannot be read for lack of permission is skipped.
+func (l *loader) system(skipUnreadable bool) error {
+	if l.env.SystemConfig == "" {
+		return nil
+	}
+	return l.loadFile(l.env.SystemConfig, ScopeSystem, skipUnreadable)
+}
+
+// global loads the global scope, skipping the files that cannot be read for
+// lack of permission, as git does.
+func (l *loader) global() error {
+	for _, path := range l.env.GlobalConfig {
+		if err := l.loadFile(path, ScopeGlobal, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // LoadProtected returns the configuration of the protected scopes only, with
 // includes followed: system, global and command line, in that order. This is
 // what git uses for keys a repository must not be able to set, such as
@@ -180,15 +196,11 @@ func (e Env) LoadProtected() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if e.SystemConfig != "" {
-		if err := l.loadFile(e.SystemConfig, ScopeSystem, true); err != nil {
-			return nil, err
-		}
+	if err := l.system(true); err != nil {
+		return nil, err
 	}
-	for _, path := range e.GlobalConfig {
-		if err := l.loadFile(path, ScopeGlobal, true); err != nil {
-			return nil, err
-		}
+	if err := l.global(); err != nil {
+		return nil, err
 	}
 	if err := l.command(); err != nil {
 		return nil, err
@@ -226,7 +238,7 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 		case v == "*":
 			safe = true
 		case strings.HasSuffix(v, "/*"):
-			prefix, err := Entry{Value: strings.TrimSuffix(v, "*")}.Path(e.Home)
+			prefix, err := expandPath(strings.TrimSuffix(v, "*"), e.Home)
 			if err != nil || !filepath.IsAbs(prefix) {
 				// As for exact entries, relative ones are skipped.
 				continue
@@ -237,7 +249,7 @@ func (e Env) SafeDirectory(dir string) (bool, error) {
 				}
 			}
 		default:
-			p, err := entry.Path(e.Home)
+			p, err := expandPath(v, e.Home)
 			if err != nil || !filepath.IsAbs(p) {
 				// "." and unexpandable values are skipped.
 				continue
@@ -281,19 +293,13 @@ func (e Env) LoadScope(s Scope) (*Config, error) {
 	}
 	switch s {
 	case ScopeSystem:
-		if e.SystemConfig != "" {
-			err = l.loadFile(e.SystemConfig, ScopeSystem, false)
-		}
+		err = l.system(false)
 	case ScopeGlobal:
-		for _, path := range e.GlobalConfig {
-			if err = l.loadFile(path, ScopeGlobal, true); err != nil {
-				break
-			}
-		}
+		err = l.global()
 	case ScopeLocal, ScopeWorktree:
 		var path string
 		var scope Scope
-		path, scope, err = e.scopeFile(s)
+		path, scope, err = scopeFile(l.repo, s)
 		if err == nil {
 			err = l.loadFile(path, scope, false)
 		}
@@ -332,37 +338,44 @@ func (e Env) LoadFile(path string) (*Config, error) {
 // ScopeLocal and ScopeWorktree outside a repository, ScopeWorktree in a
 // repository with several worktrees and no extensions.worktreeConfig.
 func (e Env) WritePath(s Scope) (string, error) {
+	path, _, err := e.writeTarget(s)
+	return path, err
+}
+
+// writeTarget returns the file WritePath returns, and the scope its entries
+// have.
+func (e Env) writeTarget(s Scope) (string, Scope, error) {
 	switch s {
 	case ScopeSystem:
 		if e.SystemConfig == "" {
-			return "", ErrNoScope
+			return "", 0, ErrNoScope
 		}
-		return e.SystemConfig, nil
+		return e.SystemConfig, s, nil
 	case ScopeGlobal:
 		if len(e.GlobalConfig) == 0 {
-			return "", ErrNoScope
+			return "", 0, ErrNoScope
 		}
 		for i := len(e.GlobalConfig) - 1; i >= 0; i-- {
 			if _, err := os.Lstat(e.GlobalConfig[i]); err == nil {
-				return e.GlobalConfig[i], nil
+				return e.GlobalConfig[i], s, nil
 			}
 		}
-		return e.GlobalConfig[len(e.GlobalConfig)-1], nil
+		return e.GlobalConfig[len(e.GlobalConfig)-1], s, nil
 	case ScopeLocal, ScopeWorktree:
-		path, _, err := e.scopeFile(s)
-		return path, err
+		r, err := e.repo()
+		if err != nil {
+			return "", 0, err
+		}
+		return scopeFile(r, s)
 	}
-	return "", ErrNoScope
+	return "", 0, ErrNoScope
 }
 
-// scopeFile returns the file of the local or worktree scope, and the scope
-// its entries have: without extensions.worktreeConfig, the worktree scope
-// is the local config, if the repository has a single worktree.
-func (e Env) scopeFile(s Scope) (string, Scope, error) {
-	r, err := e.repo()
-	if err != nil {
-		return "", 0, err
-	}
+// scopeFile returns the file of the local or worktree scope of r, nil
+// outside a repository, and the scope its entries have: without
+// extensions.worktreeConfig, the worktree scope is the local config, if the
+// repository has a single worktree.
+func scopeFile(r *repo, s Scope) (string, Scope, error) {
 	if r == nil {
 		return "", 0, ErrNoScope
 	}
@@ -385,16 +398,7 @@ func (e Env) scopeFile(s Scope) (string, Scope, error) {
 // entries have the scope LoadScope gives them. Writes never go into an
 // included file.
 func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
-	var path string
-	var scope Scope
-	var err error
-	switch s {
-	case ScopeLocal, ScopeWorktree:
-		path, scope, err = e.scopeFile(s)
-	default:
-		path, err = e.WritePath(s)
-		scope = s
-	}
+	path, scope, err := e.writeTarget(s)
 	if err != nil {
 		return err
 	}
@@ -422,8 +426,9 @@ func (e Env) UpdateScope(s Scope, fn func(*File) error) error {
 // for a moment.
 //
 // If fn returns an error or panics, the lock is released and nothing is
-// written; the panic then continues. Readers see either the old or the new file, never a partial one.
-// After fn returns, edits of the File fail with ErrClosed.
+// written; the panic then continues. Readers see either the old or the new
+// file, never a partial one. After fn returns, edits of the File fail with
+// ErrClosed.
 //
 // Following the symbolic link in step 1 is what git does, and what dotfile
 // managers rely on. It also means that whoever controls the directory of

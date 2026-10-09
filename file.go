@@ -27,8 +27,9 @@ import (
 //
 // Edits fail with ErrInvalidKey if a key or section name is one git rejects,
 // or a key with an empty section (".sub.name", which git reads from a
-// header [ "sub"]), and with ErrInvalidValue if a value contains a NUL byte. Removing something
-// that is absent is not an error: the methods report what they removed.
+// header [ "sub"]), and with ErrInvalidValue if a value contains a NUL
+// byte. Removing something that is absent is not an error: the methods
+// report what they removed.
 //
 // An edit cannot inject anything: whatever the key, subsection and value,
 // the edited file parses to the entries before the edit with exactly that
@@ -90,46 +91,48 @@ func (f *File) Config() *Config {
 // difference with git's edits. An implicit entry ("[a]\n\tk") is never
 // already set, even for value "": it reads as true, and "k = " as false.
 func (f *File) Set(key, value string) error {
-	k, section, sub, name, err := f.prepare(key, &value)
+	k, section, name, err := f.prepareValue(key, value)
 	if err != nil {
 		return err
 	}
-	idx := f.entriesOf(k)
-	switch {
-	case len(idx) > 1:
-		return &KeyError{Key: key, Err: ErrMultipleValues}
-	case len(idx) == 1:
+	var sp splice
+	switch idx := f.entriesOf(k); len(idx) {
+	case 0:
+		sp = f.insert(k, section, name, value)
+	case 1:
 		if it := f.items[idx[0]]; !it.implicit && f.valueOf(it) == value {
 			return nil
 		}
-		return f.apply(key, []splice{f.replaceEntry(idx[0], name, value)}, checkKey(k, []string{value}, 0))
+		sp = f.replaceEntry(idx[0], name, value)
+	default:
+		return &KeyError{Key: key, Err: ErrMultipleValues}
 	}
-	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, 0))
+	return f.apply(key, []splice{sp}, checkKey(k, []string{value}, 0))
 }
 
 // ReplaceAll replaces all values of key with a single value, or adds it if
 // key is absent, like `git config --replace-all <key> <value>`.
 func (f *File) ReplaceAll(key, value string) error {
-	k, section, sub, name, err := f.prepare(key, &value)
+	k, section, name, err := f.prepareValue(key, value)
 	if err != nil {
 		return err
 	}
-	idx := f.entriesOf(k)
-	if len(idx) == 0 {
-		return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, []string{value}, 0))
-	}
-	// The values collapse into one, at the place of the last.
 	var splices []splice
-	for _, i := range idx[:len(idx)-1] {
-		splices = append(splices, f.removeEntry(i))
+	if idx := f.entriesOf(k); len(idx) == 0 {
+		splices = append(splices, f.insert(k, section, name, value))
+	} else {
+		// The values collapse into one, at the place of the last.
+		for _, i := range idx[:len(idx)-1] {
+			splices = append(splices, f.removeEntry(i))
+		}
+		splices = append(splices, f.replaceEntry(idx[len(idx)-1], name, value))
 	}
-	splices = append(splices, f.replaceEntry(idx[len(idx)-1], name, value))
 	return f.apply(key, splices, checkKey(k, []string{value}, 0))
 }
 
 // Add adds a value to key, keeping existing ones, like `git config --add`.
 func (f *File) Add(key, value string) error {
-	k, section, sub, name, err := f.prepare(key, &value)
+	k, section, name, err := f.prepareValue(key, value)
 	if err != nil {
 		return err
 	}
@@ -139,14 +142,14 @@ func (f *File) Add(key, value string) error {
 	}
 	want = append(want, value)
 	// Implicit values are kept: only the new one must not be.
-	return f.apply(key, []splice{f.insert(k, section, sub, name, value)}, checkKey(k, want, len(want)-1))
+	return f.apply(key, []splice{f.insert(k, section, name, value)}, checkKey(k, want, len(want)-1))
 }
 
 // Unset removes the value of key, like `git config --unset <key>`, and
 // reports whether there was one. It fails with ErrMultipleValues if key has
 // several values.
 func (f *File) Unset(key string) (removed bool, err error) {
-	k, _, _, _, err := f.prepare(key, nil)
+	k, _, _, err := f.prepare(key)
 	if err != nil {
 		return false, err
 	}
@@ -164,7 +167,7 @@ func (f *File) Unset(key string) (removed bool, err error) {
 // UnsetAll removes all values of key, like `git config --unset-all <key>`,
 // and returns how many were removed.
 func (f *File) UnsetAll(key string) (removed int, err error) {
-	k, _, _, _, err := f.prepare(key, nil)
+	k, _, _, err := f.prepare(key)
 	if err != nil {
 		return 0, err
 	}
@@ -182,10 +185,7 @@ func (f *File) UnsetAll(key string) (removed int, err error) {
 // `git config --remove-section <section>`, and reports whether it was
 // present. Its subsections are kept.
 func (f *File) RemoveSection(section string) (removed bool, err error) {
-	if err := f.checkOpen(section); err != nil {
-		return false, err
-	}
-	if err := sectionArg(section); err != nil {
+	if err := f.prepareSection(section); err != nil {
 		return false, err
 	}
 	return f.removeSection(section, sectionKey{section: lowerASCII(section)})
@@ -195,14 +195,8 @@ func (f *File) RemoveSection(section string) (removed bool, err error) {
 // like `git config --remove-section <section>.<sub>`, and reports whether
 // it was present. sub "" is the empty subsection [section ""].
 func (f *File) RemoveSubsection(section, sub string) (removed bool, err error) {
-	if err := f.checkOpen(section); err != nil {
+	if err := f.prepareSection(section, sub); err != nil {
 		return false, err
-	}
-	if err := sectionArg(section); err != nil {
-		return false, err
-	}
-	if !validSubsection(sub) {
-		return false, &KeyError{Key: sub, Err: ErrInvalidKey}
 	}
 	return f.removeSection(section, sectionKey{lowerASCII(section), sub, true})
 }
@@ -215,10 +209,7 @@ func (f *File) RemoveSubsection(section, sub string) (removed bool, err error) {
 // it does, both sections remain and read as one, as with git. To refuse
 // instead, check f.Config() first, in the same Env.UpdateFile callback.
 func (f *File) RenameSection(oldName, newName string) error {
-	if err := f.checkOpen(oldName); err != nil {
-		return err
-	}
-	if err := sectionArg(oldName); err != nil {
+	if err := f.prepareSection(oldName); err != nil {
 		return err
 	}
 	if err := sectionArg(newName); err != nil {
@@ -235,16 +226,8 @@ func (f *File) RenameSection(oldName, newName string) error {
 // rename` refuses one, and a caller doing the same checks
 // f.Config().Subsections first.
 func (f *File) RenameSubsection(section, oldSub, newSub string) error {
-	if err := f.checkOpen(section); err != nil {
+	if err := f.prepareSection(section, oldSub, newSub); err != nil {
 		return err
-	}
-	if err := sectionArg(section); err != nil {
-		return err
-	}
-	for _, sub := range []string{oldSub, newSub} {
-		if !validSubsection(sub) {
-			return &KeyError{Key: sub, Err: ErrInvalidKey}
-		}
 	}
 	sec := lowerASCII(section)
 	return f.renameSection(section, sectionKey{sec, oldSub, true}, sectionKey{sec, newSub, true}, formatHeader(section, newSub, true))

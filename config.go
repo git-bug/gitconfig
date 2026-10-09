@@ -96,16 +96,10 @@ func (c *Config) GetAll(key string) []Entry {
 
 // All returns every entry, in order.
 func (c *Config) All() iter.Seq[Entry] {
-	return func(yield func(Entry) bool) {
-		if c == nil {
-			return
-		}
-		for _, e := range c.entries {
-			if !yield(e) {
-				return
-			}
-		}
+	if c == nil {
+		return slices.Values([]Entry(nil))
 	}
+	return slices.Values(c.entries)
 }
 
 // Section returns every entry of section [section] itself, in order; entries
@@ -260,8 +254,7 @@ func (e Entry) Int() (int64, error) {
 // include paths: a leading "~/" is replaced by home, usually Env.Home. A "~/"
 // with an empty home, a leading "%(prefix)/" (the prefix of the git binary,
 // which depends on how it was built) and an implicit value are a
-// *ValueError. Config.Path
-// does the same for a key.
+// *ValueError. Config.Path does the same for a key.
 func (e Entry) Path(home string) (string, error) {
 	if e.Implicit {
 		return "", e.error("path", nil)

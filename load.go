@@ -217,8 +217,7 @@ func (l *loader) config() *Config {
 func (l *loader) loadFile(path string, scope Scope, skipUnreadable bool) error {
 	err := l.load(path, scope, 0)
 	if skipUnreadable {
-		var fe *FileError
-		if errors.As(err, &fe) && fe.Path == path && errors.Is(fe.Err, fs.ErrPermission) {
+		if fe, ok := errors.AsType[*FileError](err); ok && fe.Path == path && errors.Is(fe.Err, fs.ErrPermission) {
 			return nil
 		}
 	}

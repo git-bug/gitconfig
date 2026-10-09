@@ -24,15 +24,14 @@ const (
 // costs the garbage collector nothing to scan: the decoded data of headers
 // and entries is in the tables of parsed.
 type item struct {
-	kind      itemKind
-	inSection bool    // false for an entry before any header
-	implicit  bool    // entries only: no '='
-	open      openEnd // entries only
-	sec       int32   // the section a header opens or an entry is in: index in parsed.secs
-	text      int32   // entries only: index in parsed.texts
-	start     int     // bytes of the item: data[start:end]
-	end       int
-	line      int // line of start, 1-based
+	kind     itemKind
+	implicit bool    // entries only: no '='
+	open     openEnd // entries only
+	sec      int32   // the section a header opens or an entry is in: index in parsed.secs, 0 before any header
+	text     int32   // entries only: index in parsed.texts
+	start    int     // bytes of the item: data[start:end]
+	end      int
+	line     int // line of start, 1-based
 }
 
 // entryText is the key name and the value of an entry.
@@ -44,17 +43,21 @@ type entryText struct {
 // parsed is a parsed file: its items, and the data they refer to.
 type parsed struct {
 	items []item
-	secs  []sectionKey // secs[0] is the zero sectionKey, for entries before any header
+	// secs[0] is the zero sectionKey, for entries before any header. No
+	// header has it: a header always has a section name or a subsection.
+	secs  []sectionKey
 	texts []entryText
 }
 
 func (p *parsed) secOf(it item) sectionKey { return p.secs[it.sec] }
+func (p *parsed) nameOf(it item) string    { return p.texts[it.text].name }
+func (p *parsed) valueOf(it item) string   { return p.texts[it.text].value }
 
 // entries appends the entries of the file, those before any header left
 // out, to out.
 func (p *parsed) entries(scope Scope, file string, out []Entry) []Entry {
 	for _, it := range p.items {
-		if it.kind != itemEntry || !it.inSection {
+		if it.kind != itemEntry || it.sec == 0 {
 			continue
 		}
 		sec := p.secs[it.sec]
@@ -68,8 +71,6 @@ func (p *parsed) entries(scope Scope, file string, out []Entry) []Entry {
 	}
 	return out
 }
-func (p *parsed) nameOf(it item) string  { return p.texts[it.text].name }
-func (p *parsed) valueOf(it item) string { return p.texts[it.text].value }
 
 // openEnd tells how an entry at the end of the file ends, for an edit that
 // adds a line after it.
@@ -90,12 +91,11 @@ type parser struct {
 	pos  int
 	line int
 
-	sec       int32 // current section
-	inSection bool
-	secIndex  map[sectionKey]int32
-	headers   map[string]int32  // the section of each header, by its bytes
-	names     map[string]string // key names, interned
-	buf       []byte            // scratch for values and subsections
+	sec      int32 // current section
+	secIndex map[sectionKey]int32
+	headers  map[string]int32  // the section of each header, by its bytes
+	names    map[string]string // key names, interned
+	buf      []byte            // scratch for values and subsections
 }
 
 // parse splits data into items, or returns the *SyntaxError git would
@@ -115,7 +115,7 @@ func (p *parser) errorAt(line int, msg string) error {
 }
 
 func (p *parser) add(kind itemKind, start, end int) *item {
-	p.items = append(p.items, item{kind: kind, start: start, end: end, line: p.line, sec: p.sec, inSection: p.inSection})
+	p.items = append(p.items, item{kind: kind, start: start, end: end, line: p.line, sec: p.sec})
 	return &p.items[len(p.items)-1]
 }
 
@@ -287,7 +287,6 @@ func (p *parser) header() error {
 		p.headers[string(d[start:i])] = sec
 	}
 	p.sec = sec
-	p.inSection = true
 	p.pos = i
 	p.add(itemHeader, start, i)
 	return nil
@@ -362,14 +361,9 @@ func (p *parser) value(i int) (string, int, int, openEnd, error) {
 			pending = -1
 		}
 	}
-	for i < len(d) {
+loop:
+	for i < len(d) && !isNewline(d, i) {
 		c := d[i]
-		if isNewline(d, i) {
-			if inQuote {
-				return "", 0, 0, 0, p.errorAt(p.line+lines, "unterminated quote")
-			}
-			break
-		}
 		switch {
 		case c == '\\':
 			if i+1 == len(d) {
@@ -416,17 +410,18 @@ func (p *parser) value(i int) (string, int, int, openEnd, error) {
 			}
 			i++
 		case c == '#' || c == ';':
-			goto end
+			break loop
 		default:
 			flush(i)
 			buf = append(buf, c)
 			i++
 		}
 	}
+	// A comment ends the value only outside quotes: the quote is open only
+	// at a newline or the end of the file.
 	if inQuote {
 		return "", 0, 0, 0, p.errorAt(p.line+lines, "unterminated quote")
 	}
-end:
 	if n := bytes.IndexByte(buf, 0); n >= 0 {
 		// git stops reading the value at a NUL byte.
 		buf = buf[:n]

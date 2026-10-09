@@ -148,14 +148,12 @@ var namedClasses = map[string][][2]byte{
 }
 
 func (t globToken) inClass(c byte, fold bool) bool {
-	in := false
 	for _, r := range t.ranges {
 		if r[0] <= c && c <= r[1] || fold && r[0] <= swapCase(c) && swapCase(c) <= r[1] {
-			in = true
-			break
+			return !t.negate
 		}
 	}
-	return in != t.negate
+	return t.negate
 }
 
 func swapCase(c byte) byte {
@@ -166,7 +164,7 @@ func swapCase(c byte) byte {
 }
 
 func sameByte(a, b byte, fold bool) bool {
-	return a == b || fold && isAlpha(a) && a^0x20 == b
+	return a == b || fold && swapCase(a) == b
 }
 
 // globMatch reports whether name matches pattern. With fold, the case of

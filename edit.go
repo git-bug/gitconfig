@@ -22,45 +22,33 @@ type splice struct {
 	text       string
 }
 
-// editKey validates key for an edit and returns it in canonical form, with
-// its section, subsection and name as the caller spelled them, for new
-// lines and headers.
-func editKey(key string) (k Key, section, sub, name string, err error) {
+// prepare checks that the file is open and validates key for an edit. It
+// returns the key in canonical form, with its section and name as the
+// caller spelled them, for new lines and headers; the subsection of the
+// canonical form is already spelled as given.
+func (f *File) prepare(key string) (k Key, section, name string, err error) {
+	if err := f.checkOpen(key); err != nil {
+		return Key{}, "", "", err
+	}
 	k, ok := parseKey(key)
 	if !ok || k.Section == "" {
-		return Key{}, "", "", "", &KeyError{Key: key, Err: ErrInvalidKey}
+		return Key{}, "", "", &KeyError{Key: key, Err: ErrInvalidKey}
 	}
-	first := strings.IndexByte(key, '.')
-	last := strings.LastIndexByte(key, '.')
-	section, name = key[:first], key[last+1:]
-	if k.HasSubsection {
-		sub = key[first+1 : last]
-	}
-	return k, section, sub, name, nil
+	section = key[:strings.IndexByte(key, '.')]
+	name = key[strings.LastIndexByte(key, '.')+1:]
+	return k, section, name, nil
 }
 
-// prepare validates the key and, if value is not nil, the value of an edit.
-func (f *File) prepare(key string, value *string) (k Key, section, sub, name string, err error) {
-	if err := f.checkOpen(key); err != nil {
-		return Key{}, "", "", "", err
-	}
-	k, section, sub, name, err = editKey(key)
+// prepareValue is prepare for an edit that writes value.
+func (f *File) prepareValue(key, value string) (k Key, section, name string, err error) {
+	k, section, name, err = f.prepare(key)
 	if err != nil {
-		return Key{}, "", "", "", err
+		return Key{}, "", "", err
 	}
-	if value != nil {
-		if err := checkValue(key, *value); err != nil {
-			return Key{}, "", "", "", err
-		}
-	}
-	return k, section, sub, name, nil
-}
-
-func checkValue(key, value string) error {
 	if strings.IndexByte(value, 0) >= 0 {
-		return &KeyError{Key: key, Err: ErrInvalidValue}
+		return Key{}, "", "", &KeyError{Key: key, Err: ErrInvalidValue}
 	}
-	return nil
+	return k, section, name, nil
 }
 
 func (f *File) checkOpen(key string) error {
@@ -75,7 +63,7 @@ func (f *File) entriesOf(k Key) []int {
 	var idx []int
 	sk := k.sectionKey()
 	for i, it := range f.items {
-		if it.kind == itemEntry && it.inSection && f.secOf(it) == sk && f.nameOf(it) == k.Name {
+		if it.kind == itemEntry && f.secOf(it) == sk && f.nameOf(it) == k.Name {
 			idx = append(idx, i)
 		}
 	}
@@ -83,17 +71,17 @@ func (f *File) entriesOf(k Key) []int {
 }
 
 // flatEntry is an entry as the checks of an edit compare them: entries
-// before any header included, origins left out.
+// before any header included, with the zero sec, origins left out. The keys
+// and sections edits compare them with always have a section name.
 type flatEntry struct {
-	inSection bool
-	sec       sectionKey
-	name      string
-	value     string
-	implicit  bool
+	sec      sectionKey
+	name     string
+	value    string
+	implicit bool
 }
 
 func (e flatEntry) is(k Key) bool {
-	return e.inSection && e.sec == k.sectionKey() && e.name == k.Name
+	return e.sec == k.sectionKey() && e.name == k.Name
 }
 
 // flatCursor walks the entries of a parsed file, without copying them out:
@@ -112,7 +100,7 @@ func (c *flatCursor) next() (flatEntry, bool) {
 		if it.kind != itemEntry {
 			continue
 		}
-		e := flatEntry{it.inSection, c.p.secOf(it), c.p.nameOf(it), c.p.valueOf(it), it.implicit}
+		e := flatEntry{c.p.secOf(it), c.p.nameOf(it), c.p.valueOf(it), it.implicit}
 		if c.keep == nil || c.keep(e) {
 			return e, true
 		}
@@ -301,10 +289,11 @@ func (f *File) replaceEntry(i int, name, value string) splice {
 // removeEntry returns the splice that removes the entry at i: its line, or
 // the rest of the line after a header, which then ends with a newline.
 func (f *File) removeEntry(i int) splice {
-	if f.firstOnLine(i) {
-		return splice{f.ownStart(i), f.entryLineEnd(i), ""}
+	text := ""
+	if !f.firstOnLine(i) {
+		text = "\n"
 	}
-	return splice{f.ownStart(i), f.entryLineEnd(i), "\n"}
+	return splice{f.ownStart(i), f.entryLineEnd(i), text}
 }
 
 // entryLineEnd returns where the line of the entry at i ends for git when it
@@ -441,19 +430,14 @@ func (f *File) unsetEntry(i int, forward map[int]int, comments []int) splice {
 
 // insert returns the splice that adds a new entry for k, at the end of the
 // last section that matches, or in a new section at the end of the file.
-func (f *File) insert(k Key, section, sub, name, value string) splice {
-	sk := k.sectionKey()
-	h := -1
-	for i, it := range f.items {
-		if it.kind == itemHeader && f.secOf(it) == sk {
-			h = i
-		}
-	}
+func (f *File) insert(k Key, section, name, value string) splice {
 	line := formatEntry(name, value)
-	if h < 0 {
-		return splice{len(f.data), len(f.data), f.terminator() + formatHeader(section, sub, k.HasSubsection) + "\n" + line}
+	headers := f.headersOf(k.sectionKey())
+	if len(headers) == 0 {
+		return splice{len(f.data), len(f.data), f.terminator() + formatHeader(section, k.Subsection, k.HasSubsection) + "\n" + line}
 	}
 
+	h := headers[len(headers)-1]
 	last := h
 	for i := h + 1; i < len(f.items) && f.items[i].kind != itemHeader; i++ {
 		if f.items[i].kind == itemEntry {
@@ -479,6 +463,23 @@ func (f *File) insert(k Key, section, sub, name, value string) splice {
 	}
 	end := f.items[last].end
 	return splice{end, end, "\n" + line}
+}
+
+// prepareSection checks that the file is open and validates the name of a
+// section given to a section edit, and its subsections.
+func (f *File) prepareSection(section string, subs ...string) error {
+	if err := f.checkOpen(section); err != nil {
+		return err
+	}
+	if err := sectionArg(section); err != nil {
+		return err
+	}
+	for _, sub := range subs {
+		if !validSubsection(sub) {
+			return &KeyError{Key: sub, Err: ErrInvalidKey}
+		}
+	}
+	return nil
 }
 
 // sectionArg validates the name of a section given to a section edit.
@@ -519,7 +520,7 @@ func (f *File) removeSection(name string, sk sectionKey) (bool, error) {
 		splices = append(splices, splice{f.ownStart(h), end, ""})
 	}
 	err := f.apply(name, splices, func(before, after *parsed) bool {
-		return sameEntries(before, after, func(e flatEntry) bool { return !e.inSection || e.sec != sk }, nil, nil)
+		return sameEntries(before, after, func(e flatEntry) bool { return e.sec != sk }, nil, nil)
 	})
 	return err == nil, err
 }
@@ -568,7 +569,7 @@ func (f *File) renameSection(name string, sk, to sectionKey, header string) erro
 	}
 	return f.apply(name, splices, func(before, after *parsed) bool {
 		return sameEntries(before, after, nil, nil, func(e flatEntry) flatEntry {
-			if e.inSection && e.sec == sk {
+			if e.sec == sk {
 				e.sec = to
 			}
 			return e
