@@ -112,6 +112,13 @@ type CommandEntry struct {
 // followed. Finding the repository is left to the caller: Discover does not
 // search parent directories and does not read GIT_DIR. Pass "" when not in
 // a repository: only the system, global and command-line scopes exist then.
+// A dir that is not a repository fails with ErrNotRepository, in a
+// *FileError naming the git directory expected: its .git when it exists (or
+// the directory a gitdir file names), dir itself otherwise. As for git, a
+// git directory must hold a HEAD file, and its common directory objects and
+// refs directories; any other would have its config read and written as
+// the local scope. A caller that wants the repository only when there is
+// one can fall back to Discover("") on ErrNotRepository.
 //
 // The repository must be trusted, as git requires: owned by the current
 // user (on Unix, also the SUDO_UID user for root; on Windows, the

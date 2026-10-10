@@ -50,7 +50,7 @@ func main() {
 	// Find the repository and where git reads its configuration from.
 	env, err := gitconfig.Discover(".")
 	if err != nil {
-		log.Fatal(err) // ErrUntrusted, as git refuses it
+		log.Fatal(err) // ErrNotRepository, or ErrUntrusted as git refuses it
 	}
 
 	// Read the effective configuration: system, global, local, worktree

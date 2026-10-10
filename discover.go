@@ -94,7 +94,8 @@ func discover(dir string, env environ) (Env, error) {
 // it when started there, and the paths whose owner git checks. In a working
 // tree (dir holds .git, or is a "gitdir:" file), they are the working tree,
 // its .git and the git directory; elsewhere, dir alone. The first is the
-// path safe.directory lists.
+// path safe.directory lists. A git directory that checkGitDir refuses fails
+// with ErrNotRepository.
 func findRepo(dir string) (gitDir string, owned []string, err error) {
 	if dir, err = filepath.Abs(dir); err != nil {
 		return "", nil, err
@@ -102,15 +103,74 @@ func findRepo(dir string) (gitDir string, owned []string, err error) {
 	dot := filepath.Join(dir, ".git")
 	if fi, err := os.Stat(dir); err == nil && fi.Mode().IsRegular() {
 		dir, dot = filepath.Dir(dir), dir
-	} else if _, err := os.Stat(dot); errors.Is(err, fs.ErrNotExist) {
-		// Also a directory that does not exist (yet): loading finds no
-		// files in it.
+	} else if _, err := os.Stat(dot); isMissing(err) {
+		if err := checkGitDir(dir); err != nil {
+			return "", nil, err
+		}
 		return dir, []string{dir}, nil
 	} else if err != nil {
 		return "", nil, &FileError{Path: dot, Err: err}
 	}
-	gitDir, err = resolveGitDir(dot)
-	return gitDir, []string{dir, dot, gitDir}, err
+	if gitDir, err = resolveGitDir(dot); err != nil {
+		return "", nil, err
+	}
+	if err := checkGitDir(gitDir); err != nil {
+		return "", nil, err
+	}
+	return gitDir, []string{dir, dot, gitDir}, nil
+}
+
+// checkGitDir fails with ErrNotRepository unless gitDir is a git directory
+// as git recognizes one: it holds a HEAD file, and its common directory
+// (gitDir itself, or the one its commondir file names in a linked worktree)
+// holds objects and refs directories. Any other directory would have its
+// config read and written as the local scope. HEAD may also be a symbolic
+// link to a branch (core.preferSymlinkRefs), whose target does not exist
+// while the branch is unborn or packed: as for git, the link's text must
+// start with "refs/". What HEAD holds is not checked, where git also
+// requires a ref or an object name.
+func checkGitDir(gitDir string) error {
+	head := filepath.Join(gitDir, "HEAD")
+	fi, err := os.Lstat(head)
+	if err != nil {
+		return notRepository(gitDir, err)
+	}
+	switch {
+	case fi.Mode().IsRegular():
+	case fi.Mode()&fs.ModeSymlink != 0:
+		target, err := os.Readlink(head)
+		if err != nil {
+			return &FileError{Path: head, Err: err}
+		}
+		if !strings.HasPrefix(filepath.ToSlash(target), "refs/") {
+			return &FileError{Path: gitDir, Err: ErrNotRepository}
+		}
+	default:
+		return &FileError{Path: gitDir, Err: ErrNotRepository}
+	}
+	r, err := Env{GitDir: gitDir}.repo()
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"objects", "refs"} {
+		fi, err := os.Stat(filepath.Join(r.commonDir, name))
+		if err != nil {
+			return notRepository(gitDir, err)
+		}
+		if !fi.IsDir() {
+			return &FileError{Path: gitDir, Err: ErrNotRepository}
+		}
+	}
+	return nil
+}
+
+// notRepository wraps the error met checking the git directory gitDir: a
+// missing path means it is not a repository.
+func notRepository(gitDir string, err error) error {
+	if isMissing(err) {
+		err = ErrNotRepository
+	}
+	return &FileError{Path: gitDir, Err: err}
 }
 
 // checkTrust fails with ErrUntrusted unless the current user owns every

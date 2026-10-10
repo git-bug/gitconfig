@@ -300,3 +300,37 @@ tree; started in a git directory, it checks that directory alone, and
 | the same, `/r/dots` owned by `bob`, `safe.directory=/r/dots` / `=/r/home` | accepted / refused, at `/r/dots` |
 | `--separate-git-dir=/r/sep/x` for `/r/w`, `/r/w` owned by `bob`, `git -C /r/sep/x` | accepted |
 | linked worktree `/r/lw` owned by `bob`, `git -C /r/w/.git/worktrees/lw` / `git -C /r/lw` | accepted / refused, at `/r/lw` |
+
+## What is a repository
+
+Observed with git 2.47.3, as `git rev-parse --git-dir` run in `/r/w` with
+`GIT_CEILING_DIRECTORIES=/r`. "Refused" means `fatal: not a git repository`.
+Unless stated, `/r/w/.git` holds `HEAD` (`ref: refs/heads/main`) and the
+directories `objects` and `refs`.
+
+| `/r/w/.git` | Result |
+|---|---|
+| as stated | accepted |
+| `HEAD` alone | refused |
+| no `objects`, or no `refs` | refused |
+| `objects` or `refs` a regular file | refused |
+| `objects` a symbolic link to a directory | accepted |
+| `HEAD` a directory | refused |
+| `HEAD` holding `garbage` | refused |
+| `HEAD` holding an object name | accepted |
+| `HEAD` a symbolic link to `refs/heads/main`, which does not exist | accepted |
+| `HEAD` a symbolic link to `refs/heads`, a directory | accepted |
+| `HEAD` a symbolic link to `refs/../../outside`, which does not exist | accepted: only the link's text is checked, which must start with `refs/` |
+| `HEAD` a symbolic link to `./refs/heads/main`, to `refs`, to `nothere`, or to the absolute path of `/r/w/.git/refs/heads/main` | refused |
+| `HEAD` a symbolic link to a directory outside `refs` (`/etc`) | refused |
+| created by `git init --ref-format=reftable`: `refs` is a directory holding a regular file `heads`, `HEAD` holds `ref: refs/heads/.invalid` | accepted |
+
+A linked worktree's git directory, `/r/w/.git/worktrees/lw`, holds `HEAD`
+and `commondir` (`../..`) but no `objects`:
+
+| Linked worktree `/r/lw` | Result |
+|---|---|
+| as created by `git worktree add` | accepted |
+| no `refs` in `worktrees/lw` | accepted |
+| no `refs`, or no `objects`, in `/r/w/.git` | refused |
+| no `commondir` | refused |
