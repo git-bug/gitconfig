@@ -54,6 +54,8 @@ func initRepo(t testing.TB, gitDir, config string) {
 	t.Helper()
 	writeFile(t, filepath.Join(gitDir, "HEAD"), "ref: refs/heads/main\n")
 	writeFile(t, filepath.Join(gitDir, "config"), config)
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "objects"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "refs"), 0o755))
 }
 
 // addWorktree registers a linked worktree named name in the repository at
@@ -1309,6 +1311,86 @@ func TestDiscover(t *testing.T) {
 		assert.Equal(t, gitDir, env.GitDir)
 	})
 
+	t.Run("HEAD a link to a branch with no loose file", func(t *testing.T) {
+		// core.preferSymlinkRefs: the branch is unborn or packed.
+		home := cleanGitEnv(t)
+		gitDir := filepath.Join(home, "repo", ".git")
+		initRepo(t, gitDir, "")
+		require.NoError(t, os.Remove(filepath.Join(gitDir, "HEAD")))
+		symlink(t, filepath.Join("refs", "heads", "main"), filepath.Join(gitDir, "HEAD"))
+		env, err := gitconfig.Discover(filepath.Join(home, "repo"))
+		require.NoError(t, err)
+		assert.Equal(t, gitDir, env.GitDir)
+	})
+
+	t.Run("reftable", func(t *testing.T) {
+		// As git init --ref-format=reftable: refs/heads is a file.
+		home := cleanGitEnv(t)
+		gitDir := filepath.Join(home, "repo", ".git")
+		initRepo(t, gitDir, "")
+		writeFile(t, filepath.Join(gitDir, "HEAD"), "ref: refs/heads/.invalid\n")
+		writeFile(t, filepath.Join(gitDir, "refs", "heads"), "this repository uses the reftable format\n")
+		require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "reftable"), 0o755))
+		env, err := gitconfig.Discover(filepath.Join(home, "repo"))
+		require.NoError(t, err)
+		assert.Equal(t, gitDir, env.GitDir)
+	})
+
+	t.Run("links accepted", func(t *testing.T) {
+		home := cleanGitEnv(t)
+		// objects and refs links to directories.
+		initRepo(t, filepath.Join(home, "linkdirs", ".git"), "")
+		for _, name := range []string{"objects", "refs"} {
+			p := filepath.Join(home, "linkdirs", ".git", name)
+			require.NoError(t, os.Rename(p, p+"-real"))
+			symlink(t, name+"-real", p)
+		}
+		// HEAD a link to a directory under refs, and to a path that
+		// leaves refs: git checks only that the link's text starts with
+		// "refs/".
+		for dir, target := range map[string]string{
+			"headrefsdir": "refs/heads",
+			"headdotdot":  "refs/../../outside",
+		} {
+			gitDir := filepath.Join(home, dir, ".git")
+			initRepo(t, gitDir, "")
+			require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0o755))
+			require.NoError(t, os.Remove(filepath.Join(gitDir, "HEAD")))
+			symlink(t, filepath.FromSlash(target), filepath.Join(gitDir, "HEAD"))
+		}
+
+		for _, dir := range []string{"linkdirs", "headrefsdir", "headdotdot"} {
+			env, err := gitconfig.Discover(filepath.Join(home, dir))
+			require.NoError(t, err, dir)
+			assert.Equal(t, filepath.Join(home, dir, ".git"), env.GitDir, dir)
+		}
+	})
+
+	t.Run("HEAD a link not starting with refs/", func(t *testing.T) {
+		home := cleanGitEnv(t)
+		outside := filepath.Join(home, "outside")
+		require.NoError(t, os.MkdirAll(outside, 0o755))
+		for dir, target := range map[string]string{
+			"dotslash": filepath.FromSlash("./refs/heads/main"),
+			"refs":     "refs",
+			"dangling": "nothere",
+			"absolute": filepath.Join(home, "absolute", ".git", "refs", "heads", "main"),
+			"outdir":   outside,
+		} {
+			gitDir := filepath.Join(home, dir, ".git")
+			initRepo(t, gitDir, "")
+			writeFile(t, filepath.Join(gitDir, "refs", "heads", "main"), "")
+			require.NoError(t, os.Remove(filepath.Join(gitDir, "HEAD")))
+			symlink(t, target, filepath.Join(gitDir, "HEAD"))
+
+			_, err := gitconfig.Discover(filepath.Join(home, dir))
+			require.ErrorIs(t, err, gitconfig.ErrNotRepository, dir)
+			fe, ok := errors.AsType[*gitconfig.FileError](err)
+			require.True(t, ok, dir)
+			assert.Equal(t, gitDir, fe.Path, dir)
+		}
+	})
+
 	t.Run("working tree", func(t *testing.T) {
 		home := cleanGitEnv(t)
 		gitDir := filepath.Join(home, "repo", ".git")
@@ -1318,12 +1400,61 @@ func TestDiscover(t *testing.T) {
 		assert.Equal(t, gitDir, env.GitDir)
 	})
 
-	t.Run("missing directory", func(t *testing.T) {
-		// Nothing to check, nothing to load.
+	t.Run("not a repository", func(t *testing.T) {
 		home := cleanGitEnv(t)
-		env, err := gitconfig.Discover(filepath.Join(home, "missing"))
-		require.NoError(t, err)
-		assert.Equal(t, filepath.Join(home, "missing"), env.GitDir)
+		// A plain directory whose config would be read as the local scope.
+		writeFile(t, filepath.Join(home, "plain", "config"), "[a]\n\tb = 1\n")
+		// A config that is not git's, and not a file.
+		require.NoError(t, os.MkdirAll(filepath.Join(home, "dotdir", "config"), 0o755))
+		// A .git without HEAD, and a HEAD that is a directory.
+		initRepo(t, filepath.Join(home, "nohead", ".git"), "")
+		require.NoError(t, os.Remove(filepath.Join(home, "nohead", ".git", "HEAD")))
+		initRepo(t, filepath.Join(home, "headdir"), "")
+		require.NoError(t, os.Remove(filepath.Join(home, "headdir", "HEAD")))
+		require.NoError(t, os.MkdirAll(filepath.Join(home, "headdir", "HEAD"), 0o755))
+		// HEAD alone, objects missing, and refs a file.
+		writeFile(t, filepath.Join(home, "headonly", "HEAD"), "ref: refs/heads/main\n")
+		initRepo(t, filepath.Join(home, "noobjects"), "")
+		require.NoError(t, os.Remove(filepath.Join(home, "noobjects", "objects")))
+		initRepo(t, filepath.Join(home, "reffile"), "")
+		require.NoError(t, os.Remove(filepath.Join(home, "reffile", "refs")))
+		writeFile(t, filepath.Join(home, "reffile", "refs"), "")
+		// A linked worktree whose common directory has no objects.
+		initRepo(t, filepath.Join(home, "main", ".git"), "")
+		addWorktree(t, filepath.Join(home, "main", ".git"), "lw", "main")
+		require.NoError(t, os.Remove(filepath.Join(home, "main", ".git", "objects")))
+		writeFile(t, filepath.Join(home, "lw", ".git"), "gitdir: ../main/.git/worktrees/lw\n")
+		// A linked worktree whose git directory has no commondir.
+		initRepo(t, filepath.Join(home, "main2", ".git"), "")
+		addWorktree(t, filepath.Join(home, "main2", ".git"), "nocd", "main")
+		require.NoError(t, os.Remove(filepath.Join(home, "main2", ".git", "worktrees", "nocd", "commondir")))
+		writeFile(t, filepath.Join(home, "nocd", ".git"), "gitdir: ../main2/.git/worktrees/nocd\n")
+		// A gitdir file naming a directory that is not a repository.
+		writeFile(t, filepath.Join(home, "wt", ".git"), "gitdir: ../plain\n")
+		// A regular file in the way.
+		writeFile(t, filepath.Join(home, "file"), "")
+
+		for _, tc := range []struct{ dir, gitDir string }{
+			{"missing", "missing"},
+			{"plain", "plain"},
+			{"dotdir", "dotdir"},
+			{"nohead", filepath.Join("nohead", ".git")},
+			{filepath.Join("nohead", ".git"), filepath.Join("nohead", ".git")},
+			{"headdir", "headdir"},
+			{"headonly", "headonly"},
+			{"noobjects", "noobjects"},
+			{"reffile", "reffile"},
+			{"lw", filepath.Join("main", ".git", "worktrees", "lw")},
+			{"nocd", filepath.Join("main2", ".git", "worktrees", "nocd")},
+			{"wt", "plain"},
+			{filepath.Join("file", "sub"), filepath.Join("file", "sub")},
+		} {
+			_, err := gitconfig.Discover(filepath.Join(home, tc.dir))
+			require.ErrorIs(t, err, gitconfig.ErrNotRepository, tc.dir)
+			fe, ok := errors.AsType[*gitconfig.FileError](err)
+			require.True(t, ok, tc.dir)
+			assert.Equal(t, filepath.Join(home, tc.gitDir), filepath.Clean(fe.Path), tc.dir)
+		}
 	})
 
 	t.Run("malformed gitdir file", func(t *testing.T) {

@@ -21,8 +21,9 @@ import (
 //     unwrapped, as no file is concerned. The error returned by the
 //     callback of Env.UpdateFile or Env.UpdateScope is returned as is.
 //   - Discover also returns an *EnvError for an environment variable it
-//     cannot interpret, and ErrUntrusted in a *FileError for a repository
-//     git would refuse.
+//     cannot interpret, ErrNotRepository in a *FileError for a directory
+//     that is not a repository, and ErrUntrusted in a *FileError for a
+//     repository git would refuse.
 //
 // Error messages name files, whose paths can come from a configuration
 // file someone else wrote. As in git, but stricter, control characters
@@ -81,6 +82,13 @@ var (
 	// refuse: not owned by the current user, and not listed in
 	// safe.directory. The *FileError's Path is the path to list.
 	ErrUntrusted = errors.New("gitconfig: repository not owned by the current user nor listed in safe.directory")
+
+	// ErrNotRepository is returned by Discover for a directory that is not
+	// a repository: the git directory expected, its .git when it exists and
+	// the directory itself otherwise, holds no HEAD file, or its common
+	// directory no objects and refs directories. The *FileError's Path is
+	// that git directory.
+	ErrNotRepository = errors.New("gitconfig: not a git repository")
 
 	// ErrClosed is returned when a File is edited after the callback of
 	// Env.UpdateFile or Env.UpdateScope has returned.
