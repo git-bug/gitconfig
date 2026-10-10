@@ -5,7 +5,7 @@ import "strings"
 // The patterns of includeIf "gitdir:" and "onbranch:" are matched as paths:
 // '*' and '?' do not match '/', "**/" at the start of a segment matches any
 // number of directories, "**" ending the pattern after a '/' (or alone)
-// matches anything, "[...]" is a class of characters ("[!...]" or "[^...]"
+// matches anything, a segment of more stars ("***") is "**", "[...]" is a class of characters ("[!...]" or "[^...]"
 // negated, "a-z" a range, "[:digit:]" a named class) and '\' quotes the
 // next character. A pattern with an unterminated class, or an unknown class
 // name, matches nothing, as in git.
@@ -42,18 +42,20 @@ func compileGlob(p string) ([]globToken, bool) {
 	for i := 0; i < len(p); {
 		c := p[i]
 		switch {
-		case c == '*' && segStart && i+1 < len(p) && p[i+1] == '*' && (i+2 == len(p) || p[i+2] == '/'):
-			if i+2 == len(p) {
+		case c == '*' && segStart && starSegment(p[i:]) > 1:
+			// As in git, a segment of three or more stars is "**" too.
+			i += starSegment(p[i:])
+			if i == len(p) {
 				toks = append(toks, globToken{kind: globAll})
-				i += 2
 				continue
 			}
 			if len(toks) == 0 || toks[len(toks)-1].kind != globDirs {
 				// "**/**/" is "**/".
 				toks = append(toks, globToken{kind: globDirs})
 			}
-			i += 3
-			continue // still at the start of a segment
+			// Past the '/': still at the start of a segment.
+			i++
+			continue
 		case c == '*':
 			for i < len(p) && p[i] == '*' {
 				i++
@@ -83,6 +85,19 @@ func compileGlob(p string) ([]globToken, bool) {
 		segStart = toks[len(toks)-1].kind == globLit && toks[len(toks)-1].c == '/'
 	}
 	return toks, true
+}
+
+// starSegment returns the number of stars p starts with, if they make up a
+// whole segment (the end of p or a '/' follows), 0 otherwise.
+func starSegment(p string) int {
+	n := 0
+	for n < len(p) && p[n] == '*' {
+		n++
+	}
+	if n < len(p) && p[n] != '/' {
+		return 0
+	}
+	return n
 }
 
 // compileClass compiles the class starting at p[start], and returns the
