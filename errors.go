@@ -58,10 +58,10 @@ var (
 	ErrIncludeDepth = errors.New("gitconfig: exceeded maximum include depth")
 
 	// ErrLoadLimit is returned when one load would read more than 1000
-	// files, 16 MiB, or 2²⁰ entries and distinct section headers in total
+	// files, 4 MiB, or 2¹⁶ entries and distinct section headers in total
 	// from files (entries of Env.Command are not counted).
 	// Parse applies the byte and entry limits to its one file, and keeps at
-	// most 2²² pieces of it (blank lines, comments, ...); an edit that would
+	// most 2¹⁸ pieces of it (blank lines, comments, ...); an edit that would
 	// take a File beyond these limits fails with it.
 	ErrLoadLimit = errors.New("gitconfig: exceeded load limits")
 

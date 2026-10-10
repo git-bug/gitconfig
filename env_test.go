@@ -469,20 +469,20 @@ func TestEnvLoadLimits(t *testing.T) {
 	}
 
 	t.Run("entries", func(t *testing.T) {
-		limitErr(t, map[string]string{"main": "[a]\n" + strings.Repeat("k\n", 1<<20+1)})
+		limitErr(t, map[string]string{"main": "[a]\n" + strings.Repeat("k\n", 1<<16+1)})
 	})
 
 	t.Run("entries across includes", func(t *testing.T) {
-		// 600 reads of 2000 entries, under the file and byte limits.
+		// 40 reads of 2000 entries, under the file and byte limits.
 		limitErr(t, map[string]string{
-			"main": strings.Repeat("[include]\n\tpath = inc\n", 600),
+			"main": strings.Repeat("[include]\n\tpath = inc\n", 40),
 			"inc":  "[a]\n" + strings.Repeat("k\n", 2000),
 		})
 	})
 
 	t.Run("distinct headers", func(t *testing.T) {
 		var sb strings.Builder
-		for i := range 1<<20 + 1 {
+		for i := range 1<<16 + 1 {
 			fmt.Fprintf(&sb, "[a \"%x\"]", i)
 		}
 		limitErr(t, map[string]string{"main": sb.String()})
@@ -490,7 +490,7 @@ func TestEnvLoadLimits(t *testing.T) {
 
 	t.Run("repeated headers are free", func(t *testing.T) {
 		dir := tempDir(t)
-		writeFile(t, filepath.Join(dir, "main"), strings.Repeat("[a]", 1<<20+1)+"k\n")
+		writeFile(t, filepath.Join(dir, "main"), strings.Repeat("[a]", 1<<16+1)+"k\n")
 		c, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
 		require.NoError(t, err)
 		assert.Len(t, c.GetAll("a.k"), 1)
@@ -522,7 +522,7 @@ func TestEnvLoadLimits(t *testing.T) {
 		// One costly pattern, then many paths under it: the condition is
 		// evaluated once, not once per path.
 		dir := tempDir(t)
-		writeFile(t, filepath.Join(dir, "main"), "[includeIf \"gitdir:"+strings.Repeat("a*", 1<<17)+"\"]\n"+strings.Repeat("path =\n", 1<<16))
+		writeFile(t, filepath.Join(dir, "main"), "[includeIf \"gitdir:"+strings.Repeat("a*", 1<<17)+"\"]\n"+strings.Repeat("path =\n", 1<<15))
 		initRepo(t, filepath.Join(dir, ".git"), "")
 
 		_, err := gitconfig.Env{GitDir: filepath.Join(dir, ".git"), GlobalConfig: []string{filepath.Join(dir, "main")}}.Load()
@@ -536,9 +536,9 @@ func TestEnvLoadLimits(t *testing.T) {
 // place in the index of the Config.
 func TestLoadMemory(t *testing.T) {
 	if testing.Short() {
-		t.Skip("allocates a few hundred MB")
+		t.Skip("allocates about 50 MB")
 	}
-	const n = 1 << 17
+	const n = 1 << 15
 	var sb strings.Builder
 	sb.WriteString("[a]\n")
 	for i := range n {

@@ -221,7 +221,7 @@ the same results.
 | `path` is a directory | `warning: unable to access 'd': Is a directory`, then `fatal: bad config line 2` *(2.47.3)* |
 | `path` is a FIFO | hangs until something writes to the FIFO *(2.47.3)* — this library refuses it (X3) |
 | `path = /dev/zero` | `fatal: bad config line 1 in file /dev/zero` (NUL is a syntax error) *(2.47.3)* |
-| 7 files, each including the next 10 times, the last holding `a.k` | no limit other than depth: 10ⁿ values for n levels — n = 3: 1,000 values in 0.01 s; n = 6: 1,000,000 in 7 s; n = 10 would be ~10¹⁰ values, hours of work and memory exhaustion from 3 KB of files *(2.47.3)* — this library stops at 1000 files or 64 MiB read per load (X3) |
+| 7 files, each including the next 10 times, the last holding `a.k` | no limit other than depth: 10ⁿ values for n levels — n = 3: 1,000 values in 0.01 s; n = 6: 1,000,000 in 7 s; n = 10 would be ~10¹⁰ values, hours of work and memory exhaustion from 3 KB of files *(2.47.3)* — this library stops at 1000 files, 4 MiB or 2¹⁶ entries read per load (X3) |
 
 ### `includeIf` (repository at `$S/work/proj`, branch `main`)
 
