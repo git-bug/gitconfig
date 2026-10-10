@@ -3,6 +3,9 @@ package gitconfig
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // The sentinel errors below are returned wrapped in a typed error that says
@@ -20,6 +23,14 @@ import (
 //   - Discover also returns an *EnvError for an environment variable it
 //     cannot interpret, and ErrUntrusted in a *FileError for a repository
 //     git would refuse.
+//
+// Error messages name files, whose paths can come from a configuration
+// file someone else wrote. As in git, but stricter, control characters
+// (newline and tab included), bidirectional controls and bytes that are not
+// UTF-8 are replaced with '?', so that a path cannot drive the terminal it
+// is printed to, nor forge a line or disguise itself. The fields of the
+// errors, and Entry, Origin and Key, hold the raw data: quote them before
+// printing them yourself.
 var (
 	// ErrNotFound is returned when the section or subsection to rename is
 	// absent. Removing something absent is not an error.
@@ -84,7 +95,7 @@ type KeyError struct {
 }
 
 func (e *KeyError) Error() string {
-	return fmt.Sprintf("%v: %q", e.Err, e.Key)
+	return sanitize(fmt.Sprintf("%v: %q", e.Err, e.Key))
 }
 
 func (e *KeyError) Unwrap() error {
@@ -104,7 +115,8 @@ func (e *FileError) Error() string {
 	if se, ok := errors.AsType[*SyntaxError](e.Err); ok && se.File == e.Path {
 		return se.Error()
 	}
-	return fmt.Sprintf("gitconfig: %s: %v", e.Path, e.Err)
+	// The wrapped error may name a path too (*fs.PathError).
+	return sanitize(fmt.Sprintf("gitconfig: %s: %v", e.Path, e.Err))
 }
 
 func (e *FileError) Unwrap() error {
@@ -121,7 +133,7 @@ type EnvError struct {
 }
 
 func (e *EnvError) Error() string {
-	return fmt.Sprintf("gitconfig: %s: %v", e.Var, e.Err)
+	return sanitize(fmt.Sprintf("gitconfig: %s: %v", e.Var, e.Err))
 }
 
 func (e *EnvError) Unwrap() error {
@@ -138,7 +150,7 @@ type SyntaxError struct {
 }
 
 func (e *SyntaxError) Error() string {
-	return fmt.Sprintf("gitconfig: %s line %d in file %s", e.Msg, e.Line, e.File)
+	return sanitize(fmt.Sprintf("gitconfig: %s line %d in file %s", e.Msg, e.Line, e.File))
 }
 
 // ValueError reports a value that cannot be read as the requested type. Its
@@ -167,9 +179,34 @@ func (e *ValueError) Error() string {
 	if e.Err != nil {
 		msg += ": " + e.Err.Error()
 	}
-	return msg
+	return sanitize(msg)
 }
 
 func (e *ValueError) Unwrap() error {
 	return e.Err
+}
+
+// sanitize replaces with '?' what could drive a terminal or disguise a
+// path: control characters (C0, DEL, C1), bidirectional controls, and bytes
+// that are not UTF-8. git does this for C0 and DEL only, but keeps tab and
+// newline; no message of this package spans lines, and a newline in a path
+// could forge one.
+func sanitize(msg string) string {
+	i := 0
+	for i < len(msg) && ' ' <= msg[i] && msg[i] < 0x7f {
+		i++
+	}
+	if i == len(msg) {
+		return msg
+	}
+	var sb strings.Builder
+	sb.WriteString(msg[:i])
+	for _, r := range msg[i:] {
+		// An invalid byte reads as utf8.RuneError, which is printed as '?' too.
+		if r < ' ' || 0x7f <= r && r <= 0x9f || r == utf8.RuneError || unicode.Is(unicode.Bidi_Control, r) {
+			r = '?'
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
 }
