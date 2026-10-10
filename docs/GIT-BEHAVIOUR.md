@@ -230,6 +230,7 @@ the same results.
 | `gitdir:$S/work/` | yes (trailing `/` means `/**`) |
 | `gitdir:$S/work` | no |
 | `gitdir:$S/work/**` | yes |
+| `gitdir:$S/***`, `gitdir:$S/***/.git`, `gitdir:$S/work/****/proj/` | yes: a segment of three or more stars is `**`, matching any number of directories, zero included; mixed with other characters (`$S/***proj/`, `$S/w***/.git`) the stars are a single `*` *(2.47.3, 2.56.0)* |
 | `gitdir:$S/work/proj/.git` | yes |
 | `gitdir:work/` | yes (relative pattern gets an implicit `**/` prefix) |
 | `gitdir/i:<upper-cased path>/WORK/` | yes |

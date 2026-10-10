@@ -615,6 +615,12 @@ func TestEnvIncludeIf(t *testing.T) {
 			{"gitdir:" + s + "/work", false},
 			{"gitdir:" + s + "/work/**", true},
 			{"gitdir:" + s + "/w*/", true},
+			{"gitdir:" + s + "/***", true},
+			{"gitdir:" + s + "/***/.git", true},
+			{"gitdir:" + s + "/work/****/proj/", true},
+			{"gitdir:" + s + "/***/***/***/.git", true},
+			{"gitdir:" + s + "/***proj/", false},
+			{"gitdir:" + s + "/w***/.git", false},
 			{"gitdir:" + s + "/work/proj/.git", true},
 			{"gitdir:" + s + "/work/proj/.git/", false},
 			{"gitdir:" + s + "/work/proj", false},
@@ -1109,6 +1115,32 @@ func TestEnvWritePath(t *testing.T) {
 			assert.Equal(t, filepath.Clean(tc.want), filepath.Clean(got))
 		})
 	}
+}
+
+func TestEnvWritePathDanglingLink(t *testing.T) {
+	// A ~/.gitconfig that links to nothing does not exist: with an XDG
+	// file, git writes there; without, through the link (git 2.56).
+	dir := tempDir(t)
+	xdg := filepath.Join(dir, "xdg")
+	home := filepath.Join(dir, "home")
+	symlink(t, filepath.Join(dir, "dotfiles", "gitconfig"), home)
+	env := gitconfig.Env{GlobalConfig: []string{xdg, home}}
+
+	got, err := env.WritePath(gitconfig.ScopeGlobal)
+	require.NoError(t, err)
+	assert.Equal(t, home, got)
+
+	writeFile(t, xdg, "")
+	got, err = env.WritePath(gitconfig.ScopeGlobal)
+	require.NoError(t, err)
+	assert.Equal(t, xdg, got)
+
+	require.NoError(t, env.UpdateScope(gitconfig.ScopeGlobal, func(f *gitconfig.File) error {
+		return f.Set("a.k", "v")
+	}))
+	_, err = os.Stat(filepath.Join(dir, "dotfiles"))
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+	assert.Equal(t, "[a]\n\tk = v\n", readFile(t, xdg))
 }
 
 // unsetenv unsets an environment variable for the duration of the test.
