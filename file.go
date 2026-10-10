@@ -57,8 +57,8 @@ type File struct {
 //
 // data may come from anyone (a .gitmodules blob from a remote): Parse never
 // panics, and its time and memory are linear in len(data). It applies the
-// limits of a load to its one file: more than 16 MiB, more than 2²⁰ entries
-// and distinct section headers, or more than 2²² pieces (blank lines,
+// limits of a load to its one file: more than 4 MiB, more than 2¹⁶ entries
+// and distinct section headers, or more than 2¹⁸ pieces (blank lines,
 // comments, ...) is a *FileError wrapping ErrLoadLimit.
 func Parse(name string, data []byte) (*File, error) {
 	if len(data) > maxLoadBytes {

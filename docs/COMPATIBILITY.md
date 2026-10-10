@@ -52,7 +52,7 @@ in [GIT-BEHAVIOUR.md](GIT-BEHAVIOUR.md).
 | Case | git | This library | Why |
 |---|---|---|---|
 | Include depth | at most 10 | the same | 1 |
-| Include fan-out, FIFOs, devices | unbounded work, hangs on a FIFO | at most 1000 files, 16 MiB and 2²⁰ entries per load; only regular files | X3 |
+| Include fan-out, FIFOs, devices | unbounded work, hangs on a FIFO | at most 1000 files, 4 MiB and 2¹⁶ entries per load; only regular files | X3 |
 | Missing include | ignored | the same | 1 |
 | Global file not readable (permission) | skipped, with a warning | skipped; also the system file in `LoadProtected` | 1 |
 | `.` and `..` in a `gitdir:` pattern | compared as written, never normalised | the same | 1 |
@@ -107,7 +107,7 @@ in [GIT-BEHAVIOUR.md](GIT-BEHAVIOUR.md).
 | More than 5 levels of symbolic links | replaces the 5th link with a regular file | error | git destroys a link it meant to follow |
 | Permissions | kept exactly | the same | 1 |
 | Content unchanged by the edit | file rewritten | not written | E7 |
-| File larger than 16 MiB, or with more than 2²⁰ entries | edited | `ErrLoadLimit` | X3 — *safe default* |
+| File larger than 4 MiB, or with more than 2¹⁶ entries | edited | `ErrLoadLimit` | X3 — *safe default* |
 | Windows: another process holding the file for a moment | — | open and rename retried for up to a second | concurrent writers would otherwise fail |
 
 ## Adding a case

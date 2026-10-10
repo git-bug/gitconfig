@@ -20,13 +20,17 @@ import (
 // Memory follows the entries, not the bytes: one entry ("k\n") can cost
 // a hundred times its size. Distinct section headers count as entries, as
 // the parser keeps each one. A parsed File also keeps every piece of the
-// file (blank lines, comments, ...), at most maxFileItems of them.
+// file (blank lines, comments, ...), at most maxFileItems of them: four per
+// entry, as a line holds indentation, an entry, a comment and a newline.
+//
+// A typical configuration has tens to hundreds of entries; the limits leave
+// room for one that tools have appended to for years.
 const (
 	maxIncludeDepth = 10
 	maxLoadFiles    = 1000
-	maxLoadBytes    = 16 << 20
-	maxLoadEntries  = 1 << 20
-	maxFileItems    = 4 << 20
+	maxLoadBytes    = 4 << 20
+	maxLoadEntries  = 1 << 16
+	maxFileItems    = 4 * maxLoadEntries
 )
 
 // repo is the repository of an Env.

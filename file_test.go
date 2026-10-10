@@ -131,14 +131,14 @@ func TestParseSyntaxError(t *testing.T) {
 
 func TestParseLimits(t *testing.T) {
 	var headers strings.Builder
-	for i := range 1 << 20 {
+	for i := range 1 << 16 {
 		fmt.Fprintf(&headers, "[a \"%x\"]", i)
 	}
 	for _, tc := range []struct{ name, data string }{
-		{"size", strings.Repeat("#\n", 8<<20+1)},
-		{"entries", "[a]\n" + strings.Repeat("k\n", 1<<20)},
+		{"size", strings.Repeat("#\n", 2<<20+1)},
+		{"entries", "[a]\n" + strings.Repeat("k\n", 1<<16)},
 		{"distinct headers", headers.String() + "\n\tk\n"},
-		{"items", strings.Repeat("\n", 4<<20+1)},
+		{"items", strings.Repeat("\n", 1<<18+1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := gitconfig.Parse("f", []byte(tc.data))
@@ -150,14 +150,14 @@ func TestParseLimits(t *testing.T) {
 	}
 
 	t.Run("at the limits", func(t *testing.T) {
-		_, err := gitconfig.Parse("f", []byte("[a]\n"+strings.Repeat("k\n", 1<<20-1)))
+		_, err := gitconfig.Parse("f", []byte("[a]\n"+strings.Repeat("k\n", 1<<16-1)))
 		require.NoError(t, err)
-		_, err = gitconfig.Parse("f", []byte(strings.Repeat("\n", 4<<20)))
+		_, err = gitconfig.Parse("f", []byte(strings.Repeat("\n", 1<<18)))
 		require.NoError(t, err)
 	})
 
 	t.Run("an edit stays within the limits", func(t *testing.T) {
-		data := "[a]\n" + strings.Repeat("k\n", 1<<20-1)
+		data := "[a]\n" + strings.Repeat("k\n", 1<<16-1)
 		f := mustParse(t, data)
 		err := f.Add("a.k", "v")
 		require.ErrorIs(t, err, gitconfig.ErrLoadLimit)
@@ -1105,9 +1105,12 @@ func BenchmarkParse(b *testing.B) {
 		{"comments", func(n int) []byte { return sized("", "# ;;;; [a] \\\n", n) }},
 	}
 	for _, in := range inputs {
-		for _, n := range []int{1 << 10, 1 << 16, 1 << 20} {
+		for _, n := range []int{1 << 10, 1 << 16, 1 << 18} {
 			data := in.gen(n)
 			b.Run(fmt.Sprintf("%s/%dKiB", in.name, n>>10), func(b *testing.B) {
+				// Within the limits: an error would measure the wrong path.
+				_, err := gitconfig.Parse("f", data)
+				require.NoError(b, err)
 				b.SetBytes(int64(len(data)))
 				b.ReportAllocs()
 				for b.Loop() {
@@ -1140,7 +1143,7 @@ func BenchmarkEdit(b *testing.B) {
 		}},
 	}
 	for _, e := range edits {
-		for _, n := range []int{1 << 10, 1 << 16, 1 << 20} {
+		for _, n := range []int{1 << 10, 1 << 16, 1 << 18} {
 			data := e.gen(n)
 			b.Run(fmt.Sprintf("%s/%dKiB", e.name, n>>10), func(b *testing.B) {
 				b.SetBytes(int64(len(data)))
