@@ -1111,6 +1111,32 @@ func TestEnvWritePath(t *testing.T) {
 	}
 }
 
+func TestEnvWritePathDanglingLink(t *testing.T) {
+	// A ~/.gitconfig that links to nothing does not exist: with an XDG
+	// file, git writes there; without, through the link (git 2.56).
+	dir := tempDir(t)
+	xdg := filepath.Join(dir, "xdg")
+	home := filepath.Join(dir, "home")
+	symlink(t, filepath.Join(dir, "dotfiles", "gitconfig"), home)
+	env := gitconfig.Env{GlobalConfig: []string{xdg, home}}
+
+	got, err := env.WritePath(gitconfig.ScopeGlobal)
+	require.NoError(t, err)
+	assert.Equal(t, home, got)
+
+	writeFile(t, xdg, "")
+	got, err = env.WritePath(gitconfig.ScopeGlobal)
+	require.NoError(t, err)
+	assert.Equal(t, xdg, got)
+
+	require.NoError(t, env.UpdateScope(gitconfig.ScopeGlobal, func(f *gitconfig.File) error {
+		return f.Set("a.k", "v")
+	}))
+	_, err = os.Stat(filepath.Join(dir, "dotfiles"))
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+	assert.Equal(t, "[a]\n\tk = v\n", readFile(t, xdg))
+}
+
 // unsetenv unsets an environment variable for the duration of the test.
 func unsetenv(t *testing.T, key string) {
 	t.Setenv(key, "")

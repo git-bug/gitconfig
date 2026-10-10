@@ -81,7 +81,8 @@ type Env struct {
 	// GlobalConfig lists the global configuration files, read in order.
 	// Writes go to the last one that exists, or to the last one if none
 	// exists: for git's [XDG file, ~/.gitconfig] this picks ~/.gitconfig
-	// unless only the XDG file exists.
+	// unless only the XDG file exists. A symbolic link exists if its target
+	// does.
 	GlobalConfig []string
 
 	// Command holds the values given on the command line (git -c,
@@ -379,7 +380,9 @@ func (e Env) writeTarget(s Scope) (string, Scope, error) {
 			return "", 0, ErrNoScope
 		}
 		for _, v := range slices.Backward(e.GlobalConfig) {
-			if _, err := os.Lstat(v); err == nil {
+			// A link to nothing does not exist, as for git: the write
+			// goes to the other file, not to the link's target.
+			if _, err := os.Stat(v); err == nil {
 				return v, s, nil
 			}
 		}
