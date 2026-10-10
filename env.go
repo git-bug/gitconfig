@@ -147,9 +147,15 @@ func Discover(dir string) (Env, error) {
 // true), up to 10 levels deep (ErrIncludeDepth). Two safety bounds git lacks
 // are added: an include must be a regular file (ErrNotRegular, so a FIFO or a
 // device cannot hang or exhaust the process), and one load reads at most
-// 1000 files and 64 MiB in total (ErrLoadLimit, so a file including itself
-// many times cannot multiply the work exponentially). Real configurations
-// never come near these bounds.
+// 1000 files, 16 MiB and 2²⁰ entries and distinct section headers in total
+// from files (ErrLoadLimit, so that a file including itself many times cannot
+// multiply the work exponentially, and a file of tiny entries cannot exhaust
+// memory).
+// Real configurations never come near these bounds.
+//
+// As in git, includes are followed as a file is read: an error in an
+// included file is reported before a syntax error further down the file
+// that includes it.
 //
 // A global file that cannot be read for lack of permission is skipped, as
 // git does; LoadProtected skips such a system file too.

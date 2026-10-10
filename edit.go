@@ -138,7 +138,16 @@ func sameEntries(before, after *parsed, keepBefore, keepAfter func(flatEntry) bo
 func (f *File) apply(key string, splices []splice, check func(before, after *parsed) bool) error {
 	// The splices never overlap; they are applied in order of position.
 	slices.SortFunc(splices, func(a, b splice) int { return a.start - b.start })
-	data := make([]byte, 0, len(f.data)+64)
+	// The file must stay one that Parse and Load accept: an edited file
+	// beyond the byte limit is never built.
+	size := len(f.data)
+	for _, s := range splices {
+		size += len(s.text) - (s.end - s.start)
+	}
+	if size > maxLoadBytes {
+		return &KeyError{Key: key, Err: ErrLoadLimit}
+	}
+	data := make([]byte, 0, size)
 	at := 0
 	for _, s := range splices {
 		data = append(data, f.data[at:s.start]...)
@@ -146,7 +155,11 @@ func (f *File) apply(key string, splices []splice, check func(before, after *par
 		at = s.end
 	}
 	data = append(data, f.data[at:]...)
-	p, err := parse(f.name, data)
+	p, err := parseFile(f.name, data)
+	if errors.Is(err, ErrLoadLimit) {
+		// The file must stay one that Parse and Load accept.
+		return &KeyError{Key: key, Err: ErrLoadLimit}
+	}
 	if err != nil || !check(&f.parsed, &p) {
 		return &KeyError{Key: key, Err: errUnsafeEdit}
 	}
@@ -185,9 +198,9 @@ func checkKey(k Key, want []string, implicitOK int) func(before, after *parsed) 
 // ownStart returns where the token at i starts, its whitespace included.
 func (f *File) ownStart(i int) int {
 	if i > 0 && f.items[i-1].kind == itemSpace {
-		return f.items[i-1].start
+		return int(f.items[i-1].start)
 	}
-	return f.items[i].start
+	return int(f.items[i].start)
 }
 
 // firstOnLine reports whether the token at i is the first of its line.
@@ -213,7 +226,7 @@ func (f *File) newlineAfter(i int) int {
 // lineEnd returns the end of the line of item i, its newline included.
 func (f *File) lineEnd(i int) int {
 	if n := f.newlineAfter(i); n >= 0 {
-		return f.items[n].end
+		return int(f.items[n].end)
 	}
 	return len(f.data)
 }
@@ -313,7 +326,7 @@ func (f *File) entryLineEnd(i int) int {
 	if n < 0 {
 		return len(f.data)
 	}
-	end := f.items[n].end
+	end := int(f.items[n].end)
 	if n+1 < len(f.items) && f.items[n+1].kind == itemNewline && f.items[n+1].end-f.items[n+1].start == 2 {
 		end++
 	}
@@ -423,19 +436,19 @@ func (f *File) unsetEntry(i int, forward map[int]int, comments []int) splice {
 	case b < 0:
 		if len(f.items) > 0 && f.items[0].kind == itemBOM {
 			// git ends the line after a BOM as after a header.
-			start, text = f.items[0].end, "\n"
+			start, text = int(f.items[0].end), "\n"
 		}
 	case f.items[b].kind == itemEntry:
 		start = f.lineEnd(b)
 	default:
-		start, text = f.items[b].end, "\n"
+		start, text = int(f.items[b].end), "\n"
 	}
 	end := len(f.data)
 	if fw < len(f.items) {
-		end = f.items[fw].start
+		end = int(f.items[fw].start)
 	}
 	// The region is items[from:fw]: start and end are item boundaries.
-	from, _ := slices.BinarySearchFunc(f.items, start, func(it item, start int) int { return it.start - start })
+	from, _ := slices.BinarySearchFunc(f.items, start, func(it item, start int) int { return int(it.start) - start })
 	if comments[fw]-comments[from] > 0 {
 		return f.removeEntry(i)
 	}
@@ -462,11 +475,11 @@ func (f *File) insert(k Key, section, name, value string) splice {
 	}
 	if f.items[last].kind == itemEntry {
 		if n := f.newlineAfter(last); n >= 0 {
-			end := f.items[n].end
+			end := int(f.items[n].end)
 			if f.entryLineEnd(last) != end {
 				// git's end of the entry takes the CR of a blank CRLF
 				// line: the new line goes after that blank line.
-				end = f.items[n+1].end
+				end = int(f.items[n+1].end)
 			}
 			return splice{end, end, line}
 		}
@@ -474,10 +487,10 @@ func (f *File) insert(k Key, section, name, value string) splice {
 	}
 	// After a header: right after its newline, or splitting its line.
 	if last+1 < len(f.items) && f.items[last+1].kind == itemNewline {
-		end := f.items[last+1].end
+		end := int(f.items[last+1].end)
 		return splice{end, end, line}
 	}
-	end := f.items[last].end
+	end := int(f.items[last].end)
 	return splice{end, end, "\n" + line}
 }
 
@@ -548,6 +561,16 @@ func (f *File) renameSection(name string, sk, to sectionKey, header string) erro
 	if len(headers) == 0 {
 		return &KeyError{Key: name, Err: ErrNotFound}
 	}
+	// Renaming many headers to a long name multiplies the size of the file:
+	// bound the result before building it. Each header grows by the
+	// difference of the spellings, and a rewritten line by at most "\n\t".
+	grow := 0
+	for _, h := range headers {
+		grow += len(header) - int(f.items[h].end-f.items[h].start) + 2
+	}
+	if len(f.data)+grow > maxLoadBytes {
+		return &KeyError{Key: name, Err: ErrLoadLimit}
+	}
 	// A header that does not start its line follows another header on the
 	// same line ("[b] [a]") and is rewritten in place. A header that starts
 	// its line has the whole line rewritten, the other headers of sk on it
@@ -559,7 +582,7 @@ func (f *File) renameSection(name string, sk, to sectionKey, header string) erro
 			continue
 		}
 		if !f.firstOnLine(h) {
-			splices = append(splices, splice{f.items[h].start, f.items[h].end, header})
+			splices = append(splices, splice{int(f.items[h].start), int(f.items[h].end), header})
 			continue
 		}
 		// git rewrites the line: the header alone, then the rest of the
