@@ -1174,3 +1174,112 @@ func TestGitTrust(t *testing.T) {
 		})
 	}
 }
+
+// FuzzGitLoadIncludes builds a small configuration from data, global and
+// local files including each other under every kind of condition, and
+// checks that Load and LoadScope agree with git, or fail where it fails.
+// Run with -fuzz: it starts git three times per input.
+func FuzzGitLoadIncludes(f *testing.F) {
+	requireGit(f)
+	root := tempDir(f)
+	home := filepath.Join(root, "home")
+	work := filepath.Join(root, "work")
+	gitDir := filepath.Join(work, ".git")
+	require.NoError(f, os.MkdirAll(home, 0o755))
+	initRepo(f, gitDir, "")
+
+	urls := []string{"https://example.com/a/b", "git@github.com:work/r.git", "https://x/y", "u", ""}
+	globs := []string{"**", "https://example.com/**", "https://example.com/*", "https://example.com/a/*",
+		"git@github.com:work/**", "git@github.com:*", "**/b", "*", "u", "nomatch", ""}
+	conds := []string{"gitdir:" + filepath.ToSlash(root) + "/", "gitdir:/nope/", "onbranch:main", "onbranch:other"}
+	const nIncludes = 4
+	inc := func(i int) string { return filepath.Join(home, fmt.Sprintf("i%d", i)) }
+
+	for _, s := range []string{"", "\x00\x01\x02", "\x03\x00\x05\x01\x02\x07", "\x05\x01\x05\x02\x09\x03\x00\x01",
+		"\x09\x09\x09\x09\x01\x02\x03\x04\x05\x06\x07\x08", "\x02\x00\x03\x01\x02\x03\x00\x02\x04\x05\x00\x00\x00\x01\x02"} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		next := func(n int) int {
+			if len(data) == 0 {
+				return 0
+			}
+			b := data[0]
+			data = data[1:]
+			return int(b) % n
+		}
+		// file renders up to 6 lines; remote URLs are never implicit, git
+		// crashes on them.
+		file := func() string {
+			var sb strings.Builder
+			for range next(7) {
+				switch next(9) {
+				case 0:
+					fmt.Fprintf(&sb, "[user]\n\tname = n%d\n", next(10))
+				case 1, 2:
+					fmt.Fprintf(&sb, "[remote \"r%d\"]\n\turl = %s\n", next(3), urls[next(len(urls))])
+				case 3, 4:
+					fmt.Fprintf(&sb, "[includeIf %q]\n\tpath = %s\n", "hasconfig:remote.*.url:"+globs[next(len(globs))], inc(next(nIncludes)))
+				case 5:
+					fmt.Fprintf(&sb, "[includeIf %q]\n\tpath = %s\n", conds[next(len(conds))], inc(next(nIncludes)))
+				case 6:
+					fmt.Fprintf(&sb, "[include]\n\tpath = ~/i%d\n", next(nIncludes))
+				case 7:
+					fmt.Fprintf(&sb, "[remote \"r%d\"]\n\tpushurl = %s\n", next(3), urls[next(len(urls))])
+				case 8:
+					if next(4) == 0 {
+						sb.WriteString("bad line\n")
+					}
+				}
+			}
+			return sb.String()
+		}
+		writeFile(t, filepath.Join(home, ".gitconfig"), file())
+		writeFile(t, filepath.Join(gitDir, "config"), "[core]\n\trepositoryformatversion = 0\n\tbare = false\n"+file())
+		for i := range nIncludes {
+			writeFile(t, inc(i), file())
+		}
+		env := gitconfig.Env{Home: home, GlobalConfig: []string{filepath.Join(home, ".gitconfig")}, GitDir: gitDir}
+		gitEnv := []string{"HOME=" + home, "XDG_CONFIG_HOME=" + filepath.Join(root, "xdg"), "GIT_CONFIG_NOSYSTEM=1",
+			"LC_ALL=C", "LANGUAGE=C", "PATH=" + os.Getenv("PATH")}
+		if n := next(3); n > 0 {
+			url := urls[next(len(urls))]
+			env.Command = []gitconfig.CommandEntry{{Key: "remote.c.url", Value: url}}
+			gitEnv = append(gitEnv, "GIT_CONFIG_PARAMETERS='remote.c.url'='"+url+"'")
+		}
+
+		check := func(name string, got *gitconfig.Config, err error, withScope bool, args ...string) bool {
+			t.Helper()
+			res := runGit(t, work, gitEnv, args...)
+			if res.code != 0 {
+				require.Error(t, err, "%s: git fails: %s", name, res.stderr)
+				return false
+			}
+			require.NoError(t, err, "%s: git succeeds", name)
+			n := 2
+			if withScope {
+				n = 3
+			}
+			var want []string
+			for _, r := range splitZ(t, res.stdout, n) {
+				if withScope {
+					want = append(want, r[0]+"\t"+gitOrigin(work, r[1])+"\t"+gitKeyValue(r[2]))
+				} else {
+					want = append(want, gitOrigin(work, r[0])+"\t"+gitKeyValue(r[1]))
+				}
+			}
+			require.Equal(t, want, describe(slices.Collect(got.All()), withScope), name)
+			return true
+		}
+		c, err := env.Load()
+		if !check("Load", c, err, true, "config", "--list", "--show-scope", "--show-origin", "-z") {
+			// git reads every scope before it reads one: it would fail
+			// where LoadScope reads its scope alone.
+			return
+		}
+		c, err = env.LoadScope(gitconfig.ScopeGlobal)
+		check("LoadScope global", c, err, false, "config", "--global", "--includes", "--list", "--show-origin", "-z")
+		c, err = env.LoadScope(gitconfig.ScopeLocal)
+		check("LoadScope local", c, err, false, "config", "--local", "--includes", "--list", "--show-origin", "-z")
+	})
+}

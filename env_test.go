@@ -2365,3 +2365,79 @@ func BenchmarkEnv(b *testing.B) {
 		}
 	})
 }
+
+// FuzzLoad loads a global and a local file and three files they can
+// include, from any bytes: "@0", "@1" and "@2" stand for the paths of the
+// included files and "@R" for the directory holding them all, so that
+// mutations reach includes and conditions. Every loaded entry must be an
+// entry of the file it names, and a failure a *FileError.
+func FuzzLoad(f *testing.F) {
+	root := tempDir(f)
+	home := filepath.Join(root, "home")
+	gitDir := filepath.Join(root, "work", ".git")
+	initRepo(f, gitDir, "")
+	files := []string{filepath.Join(home, ".gitconfig"), filepath.Join(gitDir, "config"),
+		filepath.Join(root, "i0"), filepath.Join(root, "i1"), filepath.Join(root, "i2")}
+	expand := strings.NewReplacer("@0", files[2], "@1", files[3], "@2", files[4], "@R", filepath.ToSlash(root))
+
+	f.Add("[includeIf \"hasconfig:remote.*.url:https://x/**\"]\n\tpath = @0\n", "[remote \"o\"]\n\turl = https://x/y\n", "[a]\n\tk = v\n", "", "")
+	f.Add("[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = @0\n", "", "[remote \"o\"]\n\turl = u\n", "", "")
+	f.Add("[includeIf \"hasconfig:remote.*.url:*\"]\n\tpath = @0\n[includeIf \"gitdir:@R/\"]\n\tpath = @1\n", "[remote \"\"]\n\turl = u\n", "[include]\n\tpath = @2\n", "[remote \"o\"]\n\turl\n", "[a]\n\tk\n")
+	f.Add("[include]\n\tpath = @0\n", "[includeIf \"onbranch:main\"]\n\tpath = @1\n", "[include]\n\tpath = @0\n", "[includeIf \"gitdir/i:@R/**\"]\n\tpath = @2\n", "bad line\n")
+	f.Add("[includeIf \"hasconfig:remote.*.url:u\"]\n\tpath = @0\n[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tpath = @1\n", "[remote \"a\"] url = u\n", "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = @2\n", "[x]\n\ty = 1\n", "[z]\n\tw = 2\n")
+
+	f.Fuzz(func(t *testing.T, global, local, i0, i1, i2 string) {
+		parsed := make(map[string][]gitconfig.Entry)
+		for i, content := range []string{global, local, i0, i1, i2} {
+			data := expand.Replace(content)
+			writeFile(t, files[i], data)
+			if file, err := gitconfig.Parse(files[i], []byte(data)); err == nil {
+				parsed[files[i]] = slices.Collect(file.Config().All())
+			}
+		}
+		env := gitconfig.Env{Home: home, GlobalConfig: files[:1], GitDir: gitDir}
+
+		check := func(name string, c *gitconfig.Config, err error) []gitconfig.Entry {
+			t.Helper()
+			if err != nil {
+				fe, ok := errors.AsType[*gitconfig.FileError](err)
+				require.True(t, ok, "%s: %T %v", name, err, err)
+				// Any path an include names, such as a directory.
+				require.NotEmpty(t, fe.Path, name)
+				return nil
+			}
+			var entries []gitconfig.Entry
+			for e := range c.All() {
+				// Origins are not cleaned, as in git: "/@1" is "//<root>/i1".
+				own, ok := parsed[filepath.Clean(e.Origin.File)]
+				if !ok {
+					// An include outside the test files, such as /etc/gitconfig.
+					if data, err := os.ReadFile(e.Origin.File); err == nil {
+						if file, err := gitconfig.Parse(e.Origin.File, data); err == nil {
+							own, ok = slices.Collect(file.Config().All()), true
+							parsed[filepath.Clean(e.Origin.File)] = own
+						}
+					}
+				}
+				require.True(t, ok, "%s: entry from %q, unparsable or unknown", name, e.Origin.File)
+				require.True(t, slices.ContainsFunc(own, func(p gitconfig.Entry) bool {
+					return p.Key == e.Key && p.Value == e.Value && p.Implicit == e.Implicit && p.Origin.Line == e.Origin.Line
+				}), "%s: %v is not in its file", name, e)
+				entries = append(entries, e)
+			}
+			return entries
+		}
+		c, err := env.Load()
+		first := check("Load", c, err)
+		c, err = env.Load()
+		require.Equal(t, first, check("Load again", c, err))
+		for _, s := range []gitconfig.Scope{gitconfig.ScopeGlobal, gitconfig.ScopeLocal} {
+			c, err := env.LoadScope(s)
+			check("LoadScope "+s.String(), c, err)
+		}
+		c, err = env.LoadProtected()
+		check("LoadProtected", c, err)
+		c, err = env.LoadFile(files[2])
+		check("LoadFile", c, err)
+	})
+}
