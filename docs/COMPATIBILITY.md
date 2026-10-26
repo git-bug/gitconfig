@@ -59,7 +59,9 @@ in [GIT-BEHAVIOUR.md](GIT-BEHAVIOUR.md).
 | Relative `gitdir:./` from the command line | prints an error, goes on without the include | `ErrNotAbsolute` | no one to warn — *safe default* |
 | Relative `include.path` from the command line | error | `ErrNotAbsolute` | 1 |
 | Windows: `GIT_DIR` written with `\`, pattern with `/`, through a symbolic link | the path as given does not match | matches | looks like a git for Windows bug |
-| `hasconfig:remote.*.url:` | supported | treated as false | not implemented yet (S8): the effective configuration can differ from git's |
+| `hasconfig:remote.*.url:` | supported | the same | 1 |
+| `hasconfig:remote.*.url:` met, remote URL in a file included by a `gitdir:` or `onbranch:` condition | fatal error, as for one included by `hasconfig:` itself | the same | 1, though it looks like a git bug |
+| `hasconfig:remote.*.url:` met, implicit `remote.<name>.url` (no `=`) | segmentation fault | not a URL: matches nothing | git gives no answer |
 | `onbranch:` with reftable | supported | treated as false | needs the ref store (S10) |
 
 ## Scopes and discovery

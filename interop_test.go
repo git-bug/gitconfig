@@ -665,6 +665,13 @@ type gitScenario struct {
 	setup func(t *testing.T, root string) (workDir, gitDir string)
 	// fails is true if git, and Load, must fail.
 	fails bool
+	// remoteURLErr is true if they fail on a remote URL included under a
+	// hasconfig:remote.*.url: condition, rather than on another error.
+	remoteURLErr bool
+	// globalAlone is true if the global layer is ~/.gitconfig alone and its
+	// conditions read other scopes: LoadScope(ScopeGlobal) is then compared
+	// with `git config --global --includes`, which reads that file alone.
+	globalAlone bool
 }
 
 // gitInit runs `git init` in dir with the current environment.
@@ -868,6 +875,98 @@ var gitScenarios = []gitScenario{
 		},
 	},
 	{
+		name:        "includeIf hasconfig",
+		globalAlone: true,
+		setup: func(t *testing.T, root string) (string, string) {
+			home := os.Getenv("HOME")
+			conds := []string{
+				"hasconfig:remote.*.url:git@github.com:work/**",
+				"hasconfig:remote.*.url:git@github.com:*",
+				"hasconfig:remote.*.url:https://example.com/a/*",
+				"hasconfig:remote.*.url:https://example.com/*",
+				"hasconfig:remote.*.url:https://EXAMPLE.com/**",
+				"hasconfig:remote.*.url:example.com/**",
+				"hasconfig:remote.*.url:https://cmd/**",
+				"hasconfig:remote.*.url:https://later/**",
+				"hasconfig:remote.*.url:**",
+				"hasconfig:remote.*.url:*",
+				"hasconfig:remote.origin.url:**",
+				"hasconfig:remote.*.pushurl:**",
+				"hasconfig:user.name:**",
+			}
+			var global strings.Builder
+			for i, c := range conds {
+				fmt.Fprintf(&global, "[includeIf %q]\n\tpath = c%d\n", c, i)
+				writeFile(t, filepath.Join(home, fmt.Sprintf("c%d", i)), fmt.Sprintf("[cond]\n\tc%d = %s\n[include]\n\tpath = n%d\n", i, c, i))
+				writeFile(t, filepath.Join(home, fmt.Sprintf("n%d", i)), fmt.Sprintf("[cond]\n\tn%d = nested\n", i))
+			}
+			global.WriteString("[user]\n\tname = after\n[remote \"later\"]\n\turl = https://later/x\n")
+			writeFile(t, filepath.Join(home, ".gitconfig"), global.String())
+
+			work := filepath.Join(root, "proj")
+			gitInit(t, work)
+			appendFile(t, filepath.Join(work, ".git", "config"),
+				"[remote \"origin\"]\n\turl = git@github.com:work/repo.git\n\tpushurl = p\n[remote \"other\"]\n\turl = https://example.com/a/b\n"+
+					"[includeIf \"hasconfig:remote.*.url:https://example.com/**\"]\n\tpath = ../local-inc\n")
+			writeFile(t, filepath.Join(work, "local-inc"), "[cond]\n\tlocal = yes\n")
+			t.Setenv("GIT_CONFIG_PARAMETERS", "'remote.cmd.url'='https://cmd/x'")
+			return work, filepath.Join(work, ".git")
+		},
+	},
+	{
+		name:  "hasconfig: remote URL in its include",
+		fails: true, remoteURLErr: true,
+		setup: func(t *testing.T, root string) (string, string) {
+			home := os.Getenv("HOME")
+			work := filepath.Join(root, "proj")
+			// git init fails once the global file is in place.
+			gitInit(t, work)
+			writeFile(t, filepath.Join(home, ".gitconfig"), "[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tpath = inc\n")
+			writeFile(t, filepath.Join(home, "inc"), "[remote \"o\"]\n\turl = u\n")
+			return work, filepath.Join(work, ".git")
+		},
+	},
+	{
+		name:  "hasconfig: condition with no path",
+		fails: true, remoteURLErr: true,
+		setup: func(t *testing.T, root string) (string, string) {
+			home := os.Getenv("HOME")
+			work := filepath.Join(root, "proj")
+			gitInit(t, work)
+			writeFile(t, filepath.Join(home, ".gitconfig"), fmt.Sprintf(
+				"[includeIf \"gitdir:%s/\"]\n\tpath = inc\n[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tfoo = bar\n", filepath.ToSlash(root)))
+			writeFile(t, filepath.Join(home, "inc"), "[remote \"o\"]\n\turl = u\n")
+			return work, filepath.Join(work, ".git")
+		},
+	},
+	{
+		name:  "hasconfig: remote URL before a syntax error",
+		fails: true, remoteURLErr: true,
+		setup: func(t *testing.T, root string) (string, string) {
+			home := os.Getenv("HOME")
+			work := filepath.Join(root, "proj")
+			gitInit(t, work)
+			writeFile(t, filepath.Join(home, ".gitconfig"), "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = inc\n")
+			writeFile(t, filepath.Join(home, "inc"), "[remote \"o\"]\n\turl = u\n")
+			appendFile(t, filepath.Join(work, ".git", "config"), "bad line\n")
+			return work, filepath.Join(work, ".git")
+		},
+	},
+	{
+		name:  "hasconfig: remote URL in a gitdir include",
+		fails: true, remoteURLErr: true,
+		setup: func(t *testing.T, root string) (string, string) {
+			home := os.Getenv("HOME")
+			work := filepath.Join(root, "proj")
+			// git init fails once the global file is in place.
+			gitInit(t, work)
+			writeFile(t, filepath.Join(home, ".gitconfig"), fmt.Sprintf(
+				"[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = missing\n[includeIf \"gitdir:%s/\"]\n\tpath = inc\n", filepath.ToSlash(root)))
+			writeFile(t, filepath.Join(home, "inc"), "[remote \"o\"]\n\turl = u\n")
+			return work, filepath.Join(work, ".git")
+		},
+	},
+	{
 		name:  "include cycle",
 		fails: true,
 		setup: func(t *testing.T, root string) (string, string) {
@@ -939,6 +1038,8 @@ func TestGitLoad(t *testing.T) {
 				if sc.fails {
 					require.NotZero(t, res.code, "git succeeds")
 					require.Error(t, err)
+					assert.Equal(t, sc.remoteURLErr, strings.Contains(res.stderr, "remote URLs cannot be configured"), res.stderr)
+					assert.Equal(t, sc.remoteURLErr, errors.Is(err, gitconfig.ErrRemoteURLInInclude), "%v", err)
 					return
 				}
 				require.Zero(t, res.code, res.stderr)
@@ -965,7 +1066,7 @@ func TestGitLoad(t *testing.T) {
 				// The scope itself is not compared: git labels
 				// config.worktree "local" when asked for --worktree.
 				t.Run("LoadScope "+s.String(), func(t *testing.T) {
-					if s == gitconfig.ScopeGlobal {
+					if s == gitconfig.ScopeGlobal && !sc.globalAlone {
 						// `git config --global` reads only the file it
 						// writes; LoadScope reads the whole global layer, as
 						// git does when it reads every scope.

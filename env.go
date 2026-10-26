@@ -151,14 +151,22 @@ func Discover(dir string) (Env, error) {
 // which scope it comes from. Missing files are skipped.
 //
 // Includes are followed as git does (include.path and includeIf with the
-// gitdir:, gitdir/i: and onbranch: conditions; hasconfig: is never
-// true), up to 10 levels deep (ErrIncludeDepth). Two safety bounds git lacks
-// are added: an include must be a regular file (ErrNotRegular, so a FIFO or a
-// device cannot hang or exhaust the process), and one load reads at most
-// 1000 files, 4 MiB and 2¹⁶ entries and distinct section headers in total
-// from files (ErrLoadLimit, so that a file including itself many times cannot
-// multiply the work exponentially, and a file of tiny entries cannot exhaust
-// memory).
+// gitdir:, gitdir/i:, onbranch: and hasconfig:remote.*.url: conditions),
+// up to 10 levels deep (ErrIncludeDepth). hasconfig:remote.*.url: matches
+// the remote URLs of every scope the method reads (only that scope for
+// LoadScope, that file for LoadFile); as in git, once such a condition is
+// met, by any key of its section, a remote URL in a file included by any
+// includeIf is an error (ErrRemoteURLInInclude), and the files of these
+// conditions are read even when they do not match.
+//
+// Two safety bounds git lacks are added: an include must be a regular file
+// (ErrNotRegular, so a FIFO or a device cannot hang or exhaust the
+// process), and one load reads at most 1000 files, 4 MiB and 2¹⁶ entries
+// and distinct section headers in total from files (ErrLoadLimit, so that a
+// file including itself many times cannot multiply the work exponentially,
+// and a file of tiny entries cannot exhaust memory). The files of
+// hasconfig:remote.*.url: conditions count against these limits even when
+// they do not match: they are read all the same.
 // Real configurations never come near these bounds.
 //
 // As in git, includes are followed as a file is read: an error in an
