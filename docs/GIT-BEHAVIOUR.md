@@ -241,6 +241,28 @@ the same results.
 | `git -c 'includeIf.gitdir:./.path=…'` | `error: relative config include conditionals must come from files`, then git goes on without the include, exit 0 *(2.47.3)* — this library fails with `ErrNotAbsolute`, having no one to warn |
 | `gitdir:C:/x/link/`, `GIT_DIR=C:\x\link\proj\.git` with `link` a symbolic link to `work` (Windows) | **no**, while `gitdir:C:/x/work/` (the real path) matches *(2.55.0.windows.5)* — this library compares both paths with `/` and matches |
 
+### `hasconfig:remote.*.url:` (remote `origin` at `https://example.com/a/b`)
+
+Observed with git 2.43.0 and 2.56.0 (`alpine:edge`), with the same results.
+
+| Condition or setup | Included? |
+|---|---|
+| `https://example.com/**`, `https://example.com/a/*`, `**/b`, `**`, `https://***/b`, `https://example.com/a/[a-c]` | yes |
+| `https://example.com/*`, `https://example.com/` | no: `*` stops at `/`, a trailing `/` adds nothing |
+| `https://EXAMPLE.com/**`, `example.com/**`, `*`, empty | no: case-sensitive, no implicit `**/` prefix |
+| `hasconfig:remote.origin.url:**`, `hasconfig:remote.*.pushurl:**`, `hasconfig:user.name:**`, `HASCONFIG:remote.*.url:**`, `hasconfig:REMOTE.*.URL:**` | no: only this exact prefix is a condition |
+| URL in the local file, condition in the global file | yes |
+| URL from `-c`, `GIT_CONFIG_COUNT` | yes |
+| URL further down the same file, or in a plain include | yes: every URL counts, read before or after |
+| URL `[remote ""]` (empty name), `[Remote "o"] URL` | yes |
+| `[remote] url` (no name), only a `pushurl` | no |
+| `git config --global --includes`, `--local --includes`, `-f <file> --includes` | only the URLs of that scope or file count |
+| URL in a file included by the condition, matching or not, or below it through `include.path` | `fatal: remote URLs cannot be configured in file directly or indirectly included by includeIf.hasconfig:remote.*.url`, exit 128 |
+| URL in a file included by a `gitdir:` or `onbranch:` condition that holds, with any `hasconfig:` condition met, even one with a missing file | the same fatal error; without a `hasconfig:` condition, or with the `gitdir:` condition false, it is read |
+| `hasconfig:` condition only inside an include that is not followed | not met: no error |
+| syntax error in the file of a `hasconfig:` condition that does not match | `fatal: bad config line 1`: the file is read |
+| implicit `[remote "o"] url` (no `=`) with a `hasconfig:` condition met | segmentation fault (2.43.0 and 2.56.0) — this library takes it as no URL |
+
 ## Ownership and `safe.directory`
 
 Observed with **git 2.56.0** (`alpine:edge`, Linux), as user `alice` (uid

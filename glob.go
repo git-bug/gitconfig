@@ -2,7 +2,9 @@ package gitconfig
 
 import "strings"
 
-// The patterns of includeIf "gitdir:" and "onbranch:" are matched as paths:
+// The patterns of includeIf "gitdir:", "onbranch:" and
+// "hasconfig:remote.*.url:" are matched as paths (URLs included, which get
+// no implicit "**/" or trailing "**"):
 // '*' and '?' do not match '/', "**/" at the start of a segment matches any
 // number of directories, "**" ending the pattern after a '/' (or alone)
 // matches anything, a segment of more stars ("***") is "**", "[...]" is a class of characters ("[!...]" or "[^...]"
@@ -189,9 +191,12 @@ func sameByte(a, b byte, fold bool) bool {
 // ASCII letters is ignored.
 func globMatch(pattern, name string, fold bool) bool {
 	toks, ok := compileGlob(pattern)
-	if !ok {
-		return false
-	}
+	return ok && matchTokens(toks, name, fold)
+}
+
+// matchTokens reports whether name matches the compiled pattern toks, so
+// that a pattern matched against many names is compiled once.
+func matchTokens(toks []globToken, name string, fold bool) bool {
 	n := int32(len(toks))
 	// A state is a position in the pattern, 2*s for token s, or 2*s+1 for
 	// the inside of the directories matched by the globDirs token s. Only

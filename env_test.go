@@ -759,6 +759,138 @@ func TestEnvIncludeIf(t *testing.T) {
 		assert.False(t, included(t, env, "gitdir"))
 	})
 
+	t.Run("hasconfig remote URL", func(t *testing.T) {
+		// Checked against git 2.43 and 2.56: plain glob matching against
+		// each remote.<name>.url, of any scope, read before or after.
+		gitDir := filepath.Join(tempDir(t), ".git")
+		initRepo(t, gitDir, "[remote \"origin\"]\n\turl = https://example.com/a/b\n")
+		env := gitconfig.Env{GitDir: gitDir}
+		for _, tc := range []struct {
+			cond string
+			want bool
+		}{
+			{"hasconfig:remote.*.url:https://example.com/**", true},
+			{"hasconfig:remote.*.url:https://example.com/a/*", true},
+			{"hasconfig:remote.*.url:https://example.com/a/[a-c]", true},
+			{"hasconfig:remote.*.url:**/b", true},
+			{"hasconfig:remote.*.url:**", true},
+			{"hasconfig:remote.*.url:https://example.com/*", false},
+			{"hasconfig:remote.*.url:https://example.com/", false},
+			{"hasconfig:remote.*.url:https://EXAMPLE.com/**", false},
+			{"hasconfig:remote.*.url:example.com/**", false},
+			{"hasconfig:remote.*.url:*", false},
+			{"hasconfig:remote.*.url:", false},
+			{"hasconfig:remote.origin.url:**", false},
+			{"hasconfig:remote.*.pushurl:**", false},
+			{"hasconfig:REMOTE.*.URL:**", false},
+			{"HASCONFIG:remote.*.url:**", false},
+		} {
+			assert.Equal(t, tc.want, included(t, env, tc.cond), tc.cond)
+		}
+
+		outside := gitconfig.Env{Home: home}
+		assert.False(t, included(t, outside, "hasconfig:remote.*.url:**"))
+		outside.Command = []gitconfig.CommandEntry{{Key: "remote.o.url", Value: "https://x/y"}}
+		assert.True(t, included(t, outside, "hasconfig:remote.*.url:https://x/**"))
+	})
+
+	t.Run("hasconfig remote URL read later", func(t *testing.T) {
+		global := filepath.Join(tempDir(t), "global")
+		writeFile(t, global, fmt.Sprintf("[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = %s/inc\n[a]\n\tk = after\n[remote \"\"]\n\turl = u\n", s))
+		c, err := gitconfig.Env{GlobalConfig: []string{global}}.Load()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"inc", "after"}, values(c.GetAll("a.k")))
+	})
+
+	t.Run("hasconfig remote URL of the scope read", func(t *testing.T) {
+		gitDir := filepath.Join(tempDir(t), ".git")
+		initRepo(t, gitDir, "[remote \"origin\"]\n\turl = u\n")
+		global := filepath.Join(tempDir(t), "global")
+		writeFile(t, global, fmt.Sprintf("[includeIf \"hasconfig:remote.*.url:u\"]\n\tpath = %s/inc\n", s))
+		env := gitconfig.Env{GitDir: gitDir, GlobalConfig: []string{global}}
+		c, err := env.Load()
+		require.NoError(t, err)
+		_, ok := c.Get("a.k")
+		assert.True(t, ok, "Load")
+		c, err = env.LoadScope(gitconfig.ScopeGlobal)
+		require.NoError(t, err)
+		_, ok = c.Get("a.k")
+		assert.False(t, ok, "LoadScope: the local URL is not read")
+		c, err = env.LoadFile(global)
+		require.NoError(t, err)
+		_, ok = c.Get("a.k")
+		assert.False(t, ok, "LoadFile")
+	})
+
+	t.Run("hasconfig remote URL not matched drops nested includes", func(t *testing.T) {
+		dir := tempDir(t)
+		writeFile(t, filepath.Join(dir, "outer"), "[a]\n\tk = outer\n[include]\n\tpath = nested\n")
+		writeFile(t, filepath.Join(dir, "nested"), "[a]\n\tk = nested\n")
+		writeFile(t, filepath.Join(dir, "global"), "[a]\n\tk = before\n[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = outer\n[a]\n\tk = after\n")
+		c, err := gitconfig.Env{GlobalConfig: []string{filepath.Join(dir, "global")}}.Load()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"before", "after"}, values(c.GetAll("a.k")))
+	})
+
+	t.Run("implicit remote URL", func(t *testing.T) {
+		// git 2.43 and 2.56 crash on it: it is no URL here.
+		global := filepath.Join(tempDir(t), "global")
+		writeFile(t, global, fmt.Sprintf("[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = %s/inc\n[remote \"o\"]\n\turl\n", s))
+		c, err := gitconfig.Env{GlobalConfig: []string{global}}.Load()
+		require.NoError(t, err)
+		_, ok := c.Get("a.k")
+		assert.False(t, ok)
+	})
+
+	t.Run("remote URL in a file included by includeIf", func(t *testing.T) {
+		// git fails as soon as a hasconfig:remote.*.url: condition is met,
+		// even if it does not match: its file is read anyway, as are
+		// the files of the other conditions that hold.
+		dir := tempDir(t)
+		ds := filepath.ToSlash(dir)
+		gitDir := filepath.Join(dir, "repo", ".git")
+		initRepo(t, gitDir, "")
+		writeFile(t, filepath.Join(dir, "url"), "[a]\n\tk = v\n[Remote \"o\"]\n\tURL = https://x/y\n")
+		writeFile(t, filepath.Join(dir, "include-url"), "[include]\n\tpath = url\n")
+		writeFile(t, filepath.Join(dir, "bad"), "bad line\n")
+		for _, tc := range []struct {
+			name, global string
+			err          string // the file at fault, "" for none
+		}{
+			{"in a hasconfig include", "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = url\n", "url"},
+			{"in one that does not match", "[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tpath = url\n", "url"},
+			{"below one", "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = include-url\n", "url"},
+			{"in a gitdir include", "[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tpath = missing\n[includeIf \"gitdir:" + ds + "/\"]\n\tpath = url\n", "url"},
+			{"in a gitdir include, no hasconfig", "[includeIf \"gitdir:" + ds + "/\"]\n\tpath = url\n", ""},
+			{"in a gitdir include that does not hold", "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = missing\n[includeIf \"gitdir:/nope/\"]\n\tpath = url\n", ""},
+			{"in a plain include", "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = missing\n[include]\n\tpath = url\n", ""},
+			{"syntax error in one that does not match", "[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tpath = bad\n", "bad"},
+			// Any key meets the condition, before or after the URL.
+			{"condition with no path", "[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tfoo = bar\n[includeIf \"gitdir:" + ds + "/\"]\n\tpath = url\n", "url"},
+			{"condition with no path, after", "[includeIf \"gitdir:" + ds + "/\"]\n\tpath = url\n[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tfoo = bar\n", "url"},
+			// git fails at the URL, before reading on.
+			{"syntax error after", "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = url\nbad line\n", "url"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				writeFile(t, filepath.Join(dir, "global"), tc.global)
+				_, err := gitconfig.Env{GitDir: gitDir, GlobalConfig: []string{filepath.Join(dir, "global")}}.Load()
+				if tc.err == "" {
+					require.NoError(t, err)
+					return
+				}
+				fe, ok := errors.AsType[*gitconfig.FileError](err)
+				require.True(t, ok, "%v", err)
+				assert.Equal(t, filepath.Join(dir, tc.err), fe.Path)
+				if tc.err == "url" {
+					assert.ErrorIs(t, err, gitconfig.ErrRemoteURLInInclude)
+				} else {
+					_, ok = errors.AsType[*gitconfig.SyntaxError](err)
+					assert.True(t, ok, "%v", err)
+				}
+			})
+		}
+	})
+
 	t.Run("relative gitdir pattern from the command line", func(t *testing.T) {
 		// git prints an error and goes on without the include.
 		env := gitconfig.Env{GitDir: gitDir, Command: []gitconfig.CommandEntry{{Key: "includeIf.gitdir:./.path", Value: s + "/inc"}}}
@@ -2231,5 +2363,81 @@ func BenchmarkEnv(b *testing.B) {
 				return f.Set("user.name", "Someone")
 			})
 		}
+	})
+}
+
+// FuzzLoad loads a global and a local file and three files they can
+// include, from any bytes: "@0", "@1" and "@2" stand for the paths of the
+// included files and "@R" for the directory holding them all, so that
+// mutations reach includes and conditions. Every loaded entry must be an
+// entry of the file it names, and a failure a *FileError.
+func FuzzLoad(f *testing.F) {
+	root := tempDir(f)
+	home := filepath.Join(root, "home")
+	gitDir := filepath.Join(root, "work", ".git")
+	initRepo(f, gitDir, "")
+	files := []string{filepath.Join(home, ".gitconfig"), filepath.Join(gitDir, "config"),
+		filepath.Join(root, "i0"), filepath.Join(root, "i1"), filepath.Join(root, "i2")}
+	expand := strings.NewReplacer("@0", files[2], "@1", files[3], "@2", files[4], "@R", filepath.ToSlash(root))
+
+	f.Add("[includeIf \"hasconfig:remote.*.url:https://x/**\"]\n\tpath = @0\n", "[remote \"o\"]\n\turl = https://x/y\n", "[a]\n\tk = v\n", "", "")
+	f.Add("[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = @0\n", "", "[remote \"o\"]\n\turl = u\n", "", "")
+	f.Add("[includeIf \"hasconfig:remote.*.url:*\"]\n\tpath = @0\n[includeIf \"gitdir:@R/\"]\n\tpath = @1\n", "[remote \"\"]\n\turl = u\n", "[include]\n\tpath = @2\n", "[remote \"o\"]\n\turl\n", "[a]\n\tk\n")
+	f.Add("[include]\n\tpath = @0\n", "[includeIf \"onbranch:main\"]\n\tpath = @1\n", "[include]\n\tpath = @0\n", "[includeIf \"gitdir/i:@R/**\"]\n\tpath = @2\n", "bad line\n")
+	f.Add("[includeIf \"hasconfig:remote.*.url:u\"]\n\tpath = @0\n[includeIf \"hasconfig:remote.*.url:nomatch\"]\n\tpath = @1\n", "[remote \"a\"] url = u\n", "[includeIf \"hasconfig:remote.*.url:**\"]\n\tpath = @2\n", "[x]\n\ty = 1\n", "[z]\n\tw = 2\n")
+
+	f.Fuzz(func(t *testing.T, global, local, i0, i1, i2 string) {
+		parsed := make(map[string][]gitconfig.Entry)
+		for i, content := range []string{global, local, i0, i1, i2} {
+			data := expand.Replace(content)
+			writeFile(t, files[i], data)
+			if file, err := gitconfig.Parse(files[i], []byte(data)); err == nil {
+				parsed[files[i]] = slices.Collect(file.Config().All())
+			}
+		}
+		env := gitconfig.Env{Home: home, GlobalConfig: files[:1], GitDir: gitDir}
+
+		check := func(name string, c *gitconfig.Config, err error) []gitconfig.Entry {
+			t.Helper()
+			if err != nil {
+				fe, ok := errors.AsType[*gitconfig.FileError](err)
+				require.True(t, ok, "%s: %T %v", name, err, err)
+				// Any path an include names, such as a directory.
+				require.NotEmpty(t, fe.Path, name)
+				return nil
+			}
+			var entries []gitconfig.Entry
+			for e := range c.All() {
+				// Origins are not cleaned, as in git: "/@1" is "//<root>/i1".
+				own, ok := parsed[filepath.Clean(e.Origin.File)]
+				if !ok {
+					// An include outside the test files, such as /etc/gitconfig.
+					if data, err := os.ReadFile(e.Origin.File); err == nil {
+						if file, err := gitconfig.Parse(e.Origin.File, data); err == nil {
+							own, ok = slices.Collect(file.Config().All()), true
+							parsed[filepath.Clean(e.Origin.File)] = own
+						}
+					}
+				}
+				require.True(t, ok, "%s: entry from %q, unparsable or unknown", name, e.Origin.File)
+				require.True(t, slices.ContainsFunc(own, func(p gitconfig.Entry) bool {
+					return p.Key == e.Key && p.Value == e.Value && p.Implicit == e.Implicit && p.Origin.Line == e.Origin.Line
+				}), "%s: %v is not in its file", name, e)
+				entries = append(entries, e)
+			}
+			return entries
+		}
+		c, err := env.Load()
+		first := check("Load", c, err)
+		c, err = env.Load()
+		require.Equal(t, first, check("Load again", c, err))
+		for _, s := range []gitconfig.Scope{gitconfig.ScopeGlobal, gitconfig.ScopeLocal} {
+			c, err := env.LoadScope(s)
+			check("LoadScope "+s.String(), c, err)
+		}
+		c, err = env.LoadProtected()
+		check("LoadProtected", c, err)
+		c, err = env.LoadFile(files[2])
+		check("LoadFile", c, err)
 	})
 }

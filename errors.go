@@ -66,6 +66,13 @@ var (
 	// take a File beyond these limits fails with it.
 	ErrLoadLimit = errors.New("gitconfig: exceeded load limits")
 
+	// ErrRemoteURLInInclude is returned, as git refuses it, when a remote
+	// URL is read from a file included by an includeIf in a load that also
+	// meets an includeIf "hasconfig:remote.*.url:" condition: such a URL
+	// could change what the condition matches. The *FileError names the
+	// file of the URL.
+	ErrRemoteURLInInclude = errors.New("gitconfig: remote URLs cannot be configured in file directly or indirectly included by includeIf.hasconfig:remote.*.url")
+
 	// ErrNotRegular is returned when a configuration file or an include is
 	// not a regular file (a directory, a FIFO, a device).
 	ErrNotRegular = errors.New("gitconfig: not a regular file")

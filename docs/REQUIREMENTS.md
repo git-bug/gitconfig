@@ -50,7 +50,7 @@ from git, and the principles that decide it, are in
 | S7 | `includeIf` conditions `gitdir:`, `gitdir/i:` (matched against the git directory as given and its real path, as git does; the git directory must be absolute; glob matching where `*` and `?` stop at `/` and `**/` spans directories, implicit `**/` prefix for relative patterns and `/**` suffix for a trailing `/`), `onbranch:`. The current branch is read from `HEAD` when needed. *verified* | MUST |
 | S10 | `onbranch:` for repositories whose `HEAD` is not a plain file (reftable, in-memory storage), with a branch supplied by the caller. | LATER |
 | S11 | Reading one scope whose file is absent (no system file, missing global or worktree file) gives an empty configuration, as `git config --get` does (`--list` fails there). Reading the local or worktree scope outside a repository fails, as in git. *verified* | MUST |
-| S8 | `includeIf "hasconfig:remote.*.url:…"`, including git's rule that files it includes may not define remote URLs. | SHOULD |
+| S8 | `includeIf "hasconfig:remote.*.url:…"`, including git's rule that files it includes may not define remote URLs. *verified* | SHOULD |
 | S9 | Protected configuration: some keys (e.g. `safe.directory`) only honoured from system, global and command scopes. See X5. | MUST |
 
 ## 4. Writes and concurrency

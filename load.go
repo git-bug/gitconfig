@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -213,6 +214,30 @@ type loader struct {
 	realDirRead bool
 
 	conds map[condKey]bool // includeIf conditions evaluated so far
+
+	// includeIf "hasconfig:remote.*.url:" needs every remote URL of the
+	// load, including those read after it: its includes are followed, and
+	// config drops them if no URL matches.
+	urls        []string     // the remote URLs read
+	urlCond     bool         // such a condition was met
+	urlIncludes []urlInclude // the includes it followed, by start
+	inIncludeIf int          // includeIf includes being loaded
+	condURL     *Origin      // of the first remote URL read from one of them
+}
+
+// urlInclude is an include of "hasconfig:remote.*.url:<glob>", and the
+// entries it read: l.entries[start:end]. Two of them are nested or
+// disjoint.
+type urlInclude struct {
+	glob       string
+	start, end int
+}
+
+const urlCondPrefix = "hasconfig:remote.*.url:"
+
+// isRemoteURL reports whether k is a remote URL, remote.<name>.url.
+func isRemoteURL(k Key) bool {
+	return k.Section == "remote" && k.HasSubsection && k.Name == "url"
 }
 
 // condKey is an includeIf condition and the file that holds it, which
@@ -227,8 +252,63 @@ func (e Env) newLoader() (*loader, error) {
 	return &loader{env: e, repo: r, budget: maxLoadEntries}, nil
 }
 
+// config returns the configuration loaded. Once every remote URL is known,
+// the includes of the hasconfig:remote.*.url: conditions that match none
+// are dropped.
 func (l *loader) config() *Config {
-	return newConfig(l.entries)
+	if len(l.urlIncludes) == 0 {
+		return newConfig(l.entries)
+	}
+	matches := make(map[string]bool)
+	// A new slice: l.entries and the offsets of l.urlIncludes stay valid.
+	entries := make([]Entry, 0, len(l.entries))
+	next := 0 // l.entries[:next] are copied or dropped
+	for _, inc := range l.urlIncludes {
+		if inc.start < next {
+			// Within an include already dropped.
+			continue
+		}
+		ok, found := matches[inc.glob]
+		if !found {
+			toks, valid := compileGlob(inc.glob)
+			ok = valid && slices.ContainsFunc(l.urls, func(url string) bool { return matchTokens(toks, url, false) })
+			matches[inc.glob] = ok
+		}
+		if !ok {
+			entries = append(entries, l.entries[next:inc.start]...)
+			next = inc.end
+		}
+	}
+	return newConfig(append(entries, l.entries[next:]...))
+}
+
+// add appends e to the entries. It notes a remote URL for
+// hasconfig:remote.*.url:, and fails as git does on one read from a file
+// included by an includeIf once such a condition is met.
+func (l *loader) add(e Entry) error {
+	l.entries = append(l.entries, e)
+	if !isRemoteURL(e.Key) {
+		return nil
+	}
+	// An implicit URL is no URL (git crashes on it).
+	if !e.Implicit {
+		l.urls = append(l.urls, e.Value)
+	}
+	if l.inIncludeIf > 0 && l.condURL == nil {
+		l.condURL = &e.Origin
+		return l.urlError()
+	}
+	return nil
+}
+
+// urlError returns git's error once a hasconfig:remote.*.url: condition is
+// met and a remote URL was read from a file included by an includeIf, in
+// either order, matching or not.
+func (l *loader) urlError() error {
+	if o := l.condURL; l.urlCond && o != nil {
+		return &FileError{Path: o.File, Err: fmt.Errorf("%w (line %d)", ErrRemoteURLInInclude, o.Line)}
+	}
+	return nil
 }
 
 // loadFile loads the file at path for scope. A missing file is empty. If
@@ -266,7 +346,9 @@ func (l *loader) load(path string, scope Scope, depth int) error {
 	// is reported before a syntax error further down this file.
 	var includeErr error
 	err = parseEntries(path, data, scope, &l.budget, func(e Entry) error {
-		l.entries = append(l.entries, e)
+		if includeErr = l.add(e); includeErr != nil {
+			return includeErr
+		}
 		includeErr = l.include(e, path, scope, depth)
 		return includeErr
 	})
@@ -282,15 +364,30 @@ func (l *loader) load(path string, scope Scope, depth int) error {
 // include follows e if it is an include directive. from is the file that
 // holds it, "" for the command line.
 func (l *loader) include(e Entry, from string, scope Scope, depth int) error {
-	if e.Key.Name != "path" {
-		return nil
-	}
+	urlGlob, isURLCond := "", false
 	switch {
 	case e.Key.Section == "include" && !e.Key.HasSubsection:
+		if e.Key.Name != "path" {
+			return nil
+		}
 	case e.Key.Section == "includeif" && e.Key.HasSubsection:
-		ok, err := l.condition(e.Key.Subsection, from)
-		if err != nil || !ok {
-			return err
+		// As in git, a hasconfig:remote.*.url: condition is met by any key
+		// of its section, path or not.
+		if urlGlob, isURLCond = strings.CutPrefix(e.Key.Subsection, urlCondPrefix); isURLCond {
+			l.urlCond = true
+			if err := l.urlError(); err != nil {
+				return err
+			}
+		}
+		if e.Key.Name != "path" {
+			return nil
+		}
+		// A hasconfig:remote.*.url: include is followed for now: see config.
+		if !isURLCond {
+			ok, err := l.condition(e.Key.Subsection, from)
+			if err != nil || !ok {
+				return err
+			}
 		}
 	default:
 		return nil
@@ -316,7 +413,20 @@ func (l *loader) include(e Entry, from string, scope Scope, depth int) error {
 	if depth+1 > maxIncludeDepth {
 		return &FileError{Path: path, Err: fmt.Errorf("%w while including %s from %s; this might be due to circular includes", ErrIncludeDepth, path, from)}
 	}
-	return l.load(path, scope, depth+1)
+	if e.Key.Section == "includeif" {
+		l.inIncludeIf++
+		defer func() { l.inIncludeIf-- }()
+	}
+	// Added before loading, so that it comes before the includes it holds.
+	i := len(l.urlIncludes)
+	if isURLCond {
+		l.urlIncludes = append(l.urlIncludes, urlInclude{urlGlob, len(l.entries), 0})
+	}
+	err = l.load(path, scope, depth+1)
+	if isURLCond {
+		l.urlIncludes[i].end = len(l.entries)
+	}
+	return err
 }
 
 // fail reports an invalid include directive, as git does: a bad line of
@@ -357,9 +467,9 @@ func (l *loader) condition(cond, from string) (bool, error) {
 	return ok, nil
 }
 
-// evalCondition evaluates the condition of an includeIf. Unknown
-// conditions, and those this package does not support (hasconfig:), are
-// false.
+// evalCondition evaluates the condition of an includeIf, but
+// hasconfig:remote.*.url:, which include and config handle. Unknown
+// conditions are false.
 func (l *loader) evalCondition(cond, from string) (bool, error) {
 	switch {
 	case strings.HasPrefix(cond, "gitdir:"):
@@ -458,7 +568,9 @@ func (l *loader) command() error {
 		if c.Implicit {
 			e.Value = ""
 		}
-		l.entries = append(l.entries, e)
+		if err := l.add(e); err != nil {
+			return err
+		}
 		if err := l.include(e, "", ScopeCommand, 0); err != nil {
 			return err
 		}
